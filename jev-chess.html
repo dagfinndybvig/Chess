@@ -425,7 +425,15 @@ const Jev = (() => {
     const net = gain - oppReplyScore;
     let bad = false;
     if (givesCheck && !oppMoves.length) bits.push('CHECKMATE — WINS THE GAME');
-    else if (!givesCheck && !oppMoves.length) bits.push('stalemate — DRAWS THE GAME');
+    else if (!givesCheck && !oppMoves.length) {
+      const mat = materialCount(m.board);
+      if (mat.w > mat.b) {
+        bits.push('BAD MOVE — stalemate: the opponent has no legal moves and is not in check, so this move DRAWS THE GAME and throws away a winning position. NEVER choose this.');
+        bad = true;
+      } else {
+        bits.push('stalemate — the opponent has no legal moves and is not in check, so the game is DRAWN (a good escape when you are behind)');
+      }
+    }
     else {
       if (net > 0) bits.push('WINS MATERIAL: nets about +' + net + ' point' + (net === 1 ? '' : 's') + ' in the exchange');
       else if (net < 0) {
@@ -631,7 +639,18 @@ const Jev = (() => {
   }
 
   async function chooseMove(moves) {
-    const filtered = filterMoves(moves);
+    let filtered = filterMoves(moves);
+    // Hard constraint: when White is ahead, never offer a move that
+    // stalemates the opponent — it throws away a win. (A stalemate is
+    // still allowed as an escape when White is behind or level.)
+    const mat = materialCount(board);
+    if (mat.w > mat.b) {
+      const nonStalemate = filtered.filter(m => {
+        const om = legalMoves(m.board, 'b', castleRightsAfter(m), null);
+        return !(om.length === 0 && !inCheck(m.board, 'b'));
+      });
+      if (nonStalemate.length) filtered = nonStalemate;
+    }
     const res = await query(filtered);
     // Play Jev's best option: the highest-probability legal move. No
     // temperature sampling — Jev plays its best move, not for variety.

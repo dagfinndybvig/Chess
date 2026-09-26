@@ -26,25 +26,32 @@
 - [x] Everything pushed to github.com/dagfinndybvig/Chess
 - [x] Fresh confirmation run (8 games, 6.5/8) after the git cleanup —
       level holds; one stalemate-in-a-winning-position weakness noted
+- [x] Iteration 4: stalemate avoidance — BAD MOVE annotation + hard
+      constraint that filters stalemating moves when ahead (12 games,
+      7.5/12, no stalemate)
 
 Jev now plays at least beginner chess against the local heuristic:
 takes free material, keeps pieces defended, develops, castles, and
-converts winning endgames into checkmates (9.5/11 across the last two
-iterations; 6.5/8 on the fresh re-measure).
+converts winning endgames into checkmates (9.5/11 across iterations
+2-3; 6.5/8 on the fresh re-measure; 7.5/12 with no stalemate after
+iteration 4).
 
 ## Next steps
 
-- [ ] Stalemate avoidance: warn Jev on any move that leaves the
-      opponent with no legal moves and no check — it stalemated a bare
-      king while up 10-1 in the fresh run (batch 1, game 1)
+- [ ] Conversion: Jev drew by repetition while up 10-6 (batch 2, game
+      1) — coach it to keep making progress instead of shuffling when
+      ahead
+- [ ] Blunder avoidance: 3 of 12 games were lost to tactical blunders
+      (a mate in 26 plies while up 33-32, one in 18 plies while down
+      35-38, one in 122 plies while down 0-9) — add two-move tactic
+      warnings (opponent's reply that creates a NEW hanging piece)
 - [ ] Measure against a stronger baseline: give the local heuristic a
       2-ply search or material+mobility evaluation, and see where Jev's
       beginner level actually caps out
 - [ ] Play a human beginner and report honestly
-- [ ] If more strength is wanted, candidate levers: two-move tactic
-      warnings (opponent's reply that creates a NEW hanging piece),
-      pinned-piece annotations, king-safety summary (attackers near
-      the king, open files) in the state text
+- [ ] If more strength is wanted, candidate levers: pinned-piece
+      annotations, king-safety summary (attackers near the king, open
+      files) in the state text
 - [ ] GitHub Pages deployment check (repo pushed; verify
       dagfinndybvig.github.io/Chess serves and falls back to the local
       AI for White)

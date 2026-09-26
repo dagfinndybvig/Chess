@@ -130,12 +130,28 @@ the 250-ply cap with Jev down on material.
 - Batch 2 (4/4): all checkmate — 41 plies (31-13), 207 plies (10-0,
   a converted bare-king endgame), 77 plies (24-13), 53 plies (22-4).
 
-The batch-1 stalemate is the one recurring weakness: in a winning
-endgame Jev sometimes stalemates the enemy king instead of mating it.
-It is not consistent (batch 2 converted the same 10-0 endgame to
-checkmate), but it is the next candidate to coach — a stalemate
-warning on any move that leaves the opponent with no legal moves and
-no check.
+**Stalemate avoidance (iteration 4).** The batch-1 stalemate was the
+one recurring weakness: in a winning endgame Jev sometimes stalemated
+the enemy king instead of mating it. Fixed in two layers:
+
+1. **Annotation** in `describeMove`: a move that stalemates the
+   opponent (no legal moves, no check) is prefixed `BAD MOVE` when Jev
+   is ahead on material; when behind it stays a neutral "good escape".
+2. **Hard constraint** in `chooseMove`: when Jev is ahead on material,
+   any candidate that stalemates the opponent is filtered out before
+   the position is sent to Jev, so it physically cannot choose one in a
+   winning position.
+
+The annotation alone was insufficient — in an annotation-only batch Jev
+was up 12-0 and still picked the stalemating move as its argmax. The
+hard constraint guarantees it cannot. Re-measured over 12 games:
+**7.5/12 (~63%)** — 6 wins, 3 draws, 3 losses, and **no stalemate** (a
+10-0 lead was converted to checkmate). The score is lower than the
+fresh run because of variance, not the fix: the losses were blunders
+(one mate in 26 plies while up 33-32, one in 18 plies while down
+35-38, one in 122 plies while down 0-9) and two draws were failures to
+convert a winning position (drew by repetition while up 10-6). The
+stalemate itself is gone.
 
 ## Rules implementation
 

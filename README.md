@@ -53,9 +53,21 @@ the line-ending/git cleanup to confirm the level still holds: **6.5/8
 250-ply cap while Jev was down on material. Batch 1 was 2.5/4 (the
 stalemate came with Jev up 10-1; the capped game had Jev down 1-6);
 batch 2 was a clean 4/4, all checkmate. The stalemate-in-a-winning-
-position is the one recurring weakness — Jev drives the king to the
-edge but does not always avoid stalemating it — and is the next
-candidate to coach (see TODO).
+position was the one recurring weakness — Jev drives the king to the
+edge but does not always avoid stalemating it.
+
+**Stalemate avoidance (iteration 4).** Fixed in two layers: every move
+that stalemates the opponent is annotated `BAD MOVE` when Jev is ahead
+(so it is never chosen), and — the hard guarantee — such moves are
+removed from the candidate set entirely before Jev is queried, so it
+physically cannot play one in a winning position. Re-measured over 12
+games: **7.5/12 (~63%)** — 6 wins, 3 draws, 3 losses, and **no
+stalemate** (a 10-0 lead was converted to checkmate). The score is
+lower than the 81% confirmation run because of variance: three quick
+blunder losses (Jev hung material and got mated) and one failure to
+convert (drew by repetition while up 10-6). The stalemate itself is
+gone; the remaining weaknesses are conversion and blunder avoidance
+(see TODO).
 
 The game is also served from GitHub Pages:
 **https://dagfinndybvig.github.io/Chess/** — Jev needs the local proxy
