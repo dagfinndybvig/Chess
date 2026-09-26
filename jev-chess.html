@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jev Chess — 8x8</title>
+<style>
+  body { background: #2b2b2b; color: #eee; font-family: Georgia, serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+  h1 { font-weight: normal; margin: 0 0 4px; }
+  #status { min-height: 24px; margin: 8px 0; font-size: 18px; }
+  #matchup { min-height: 24px; font-size: 19px; color: #ffd54f; }
+  #modes { border: 1px solid #666; border-radius: 6px; padding: 8px 14px; margin-top: 10px; font-size: 13px; color: #ddd; background: rgba(0,0,0,.25); max-width: 560px; }
+  #modes b { color: #ffd54f; }
+  #modes a { color: #7ec8ff; }
+  canvas { background: #7a5a2e; border-radius: 4px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  #boardwrap { position: relative; }
+  #gameover { display: none; position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,.8); color: #ff5252; font-size: 30px; font-weight: bold; text-align: center; padding: 16px 26px; border-radius: 8px; pointer-events: none; max-width: 420px; line-height: 1.3; }
+  #controls { margin-top: 12px; }
+  button { background: #444; color: #eee; border: 1px solid #666; padding: 6px 16px; margin: 0 4px; font-size: 15px; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #555; }
+  #score { margin-top: 10px; font-size: 15px; color: #bbb; }
+  #jevhud { position: fixed; right: 16px; bottom: 12px; font-size: 13px; letter-spacing: 1px; font-family: monospace; }
+  #autohud { display: none; position: fixed; left: 16px; bottom: 12px; color: #ffd54f; font-size: 13px; font-family: monospace; }
+  #jevlog { display: none; position: fixed; left: 16px; bottom: 40px; background: rgba(0,0,0,.85); color: #cfc; font: 12px monospace; padding: 10px; border-radius: 6px; max-width: 460px; max-height: 40vh; overflow-y: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Jev Chess</h1>
+<div id="matchup"></div>
+<div id="status">White opens the game.</div>
+<div id="boardwrap">
+<canvas id="board" width="468" height="468"></canvas>
+<div id="gameover"></div>
+</div>
+<div id="controls">
+  <button id="undoBtn">Undo</button>
+  <button id="newBtn">New game</button>
+  <button id="autoBtn">Autoplay: off (0)</button>
+  <button id="keyBtn">API key (J)</button>
+  <button id="logBtn">Jev log (L)</button>
+</div>
+<div id="score"></div>
+<div id="modes">
+  <b>Player combinations</b> — you (Black) vs <b>Jev</b> (needs <code>node server.js</code> + API key) ·
+  you vs <b>local AI</b> (no key needed) ·
+  <b>local AI vs Jev</b> (autoplay with key) ·
+  <b>local AI vs local AI</b> (autoplay without key)<br>
+  Keys: <b>0</b> toggle autoplay · <b>J</b> enter API key (Jev needs it) · <b>L</b> Jev log ·
+  or use the buttons above ·
+  <a href="https://en.wikipedia.org/wiki/Chess" target="_blank" rel="noopener">Chess on Wikipedia</a>
+</div>
+<div id="jevhud"></div>
+<div id="autohud">AUTOPLAY (0 to toggle)</div>
+<div id="jevlog"></div>
+
+<script>
+'use strict';
+const N = 8;                 // 8x8 board
+const FILES = 'abcdefgh';
+const POINTS = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0 };
+const PIECE_NAME = { P: 'pawn', N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king' };
+const GLYPH = { K: '\u265A', Q: '\u265B', R: '\u265C', B: '\u265D', N: '\u265E', P: '\u265F' };
+const MARGIN = 24, CELL = (468 - 2 * MARGIN) / N;
+const AUTO_DELAY = 700; // pause between autoplay moves
+
+let board, turn, castleR, epSq, halfmove, captures, history, repMap,
+    lastUci, jevLastChoice, gameOver, sel, selMoves, moveSeq = 0;
+let autoplay = false;
+
+const isWhiteP = p => p >= 'A' && p <= 'Z';
+const colorOf = p => p ? (isWhiteP(p) ? 'w' : 'b') : '';
+const opp = c => c === 'w' ? 'b' : 'w';
+function coordName(x, y) { return FILES[x] + (y + 1); }
+function moveLabel(m) { return coordName(m.x1, m.y1) + coordName(m.x2, m.y2); }
+
+function startBoard() {
+  const bd = Array.from({ length: N }, () => new Array(N).fill(''));
+  const back = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'];
+  for (let x = 0; x < N; x++) {
+    bd[0][x] = back[x];
+    bd[1][x] = 'P';
+    bd[6][x] = 'p';
+    bd[7][x] = back[x].toLowerCase();
+  }
+  return bd;
+}
+
+function cloneBd(bd) { return bd.map(r => r.slice()); }
+
+// ---- Rules engine: pure functions over board[y][x] (y=0 is rank 1) ----
+
+// Cheapest attacker of square (x,y) by color `by`, EXCLUDING the king
+// (kings cannot profitably capture defended pieces; excluding them keeps
+// the "under attack" information honest). Infinity if not attacked.
+// With includeKing=true the king counts too (used for check detection).
+function attackScan(bd, x, y, by, includeKing) {
+  let best = Infinity;
+  const W = by === 'w';
+  // pawns (a white pawn on (x, y-1) attacks (x, y))
+  const py = W ? y - 1 : y + 1;
+  if (py >= 0 && py < N) {
+    for (const px of [x - 1, x + 1]) {
+      if (px >= 0 && px < N && bd[py][px] === (W ? 'P' : 'p')) best = Math.min(best, 1);
+    }
+  }
+  // knights
+  const KN = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
+  for (const [dx, dy] of KN) {
+    const nx = x + dx, ny = y + dy;
+    if (nx >= 0 && nx < N && ny >= 0 && ny < N && bd[ny][nx] === (W ? 'N' : 'n')) best = Math.min(best, 3);
+  }
+  // king
+  if (includeKing) {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < N && ny >= 0 && ny < N && bd[ny][nx] === (W ? 'K' : 'k')) best = Math.min(best, 0);
+    }
+  }
+  // sliders
+  const RAYS = [[1,0,'R'],[-1,0,'R'],[0,1,'R'],[0,-1,'R'],[1,1,'B'],[1,-1,'B'],[-1,1,'B'],[-1,-1,'B']];
+  for (const [dx, dy, kind] of RAYS) {
+    let nx = x + dx, ny = y + dy;
+    while (nx >= 0 && nx < N && ny >= 0 && ny < N) {
+      const t = bd[ny][nx];
+      if (t) {
+        const u = t.toUpperCase();
+        if (colorOf(t) === by && (u === kind || u === 'Q')) best = Math.min(best, POINTS[u]);
+        break;
+      }
+      nx += dx; ny += dy;
+    }
+  }
+  return best;
+}
+
+function findKing(bd, color) {
+  const k = color === 'w' ? 'K' : 'k';
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++)
+    if (bd[y][x] === k) return { x, y };
+  return null;
+}
+
+function inCheck(bd, color) {
+  const k = findKing(bd, color);
+  return !!k && attackScan(bd, k.x, k.y, opp(color), true) < Infinity;
+}
+
+function genPseudo(bd, color, castle, ep) {
+  const moves = [];
+  const add = (x1, y1, x2, y2, extra) => moves.push(Object.assign(
+    { x1, y1, x2, y2, piece: bd[y1][x1], captured: bd[y2][x2] || '',
+      ep: false, castle: null, promo: null, double: false }, extra || {}));
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const p = bd[y][x];
+    if (!p || colorOf(p) !== color) continue;
+    const up = p.toUpperCase();
+    if (up === 'P') {
+      const dir = color === 'w' ? 1 : -1, start = color === 'w' ? 1 : 6, last = color === 'w' ? 7 : 0;
+      if (bd[y + dir][x] === '') {
+        if (y + dir === last) add(x, y, x, y + dir, { promo: up });
+        else add(x, y, x, y + dir);
+        if (y === start && bd[y + 2 * dir][x] === '') add(x, y, x, y + 2 * dir, { double: true });
+      }
+      for (const dx of [-1, 1]) {
+        const nx = x + dx, ny = y + dir;
+        if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
+        const t = bd[ny][nx];
+        if (t && colorOf(t) !== color) {
+          if (ny === last) add(x, y, nx, ny, { promo: up });
+          else add(x, y, nx, ny);
+        } else if (!t && ep && ep.x === nx && ep.y === ny) {
+          add(x, y, nx, ny, { ep: true, captured: color === 'w' ? 'p' : 'P' });
+        }
+      }
+    } else if (up === 'N') {
+      const KN = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
+      for (const [dx, dy] of KN) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
+        const t = bd[ny][nx];
+        if (!t || colorOf(t) !== color) add(x, y, nx, ny);
+      }
+    } else if (up === 'K') {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
+        const t = bd[ny][nx];
+        if (!t || colorOf(t) !== color) add(x, y, nx, ny);
+      }
+      // castling (king on its home square, rights intact, path empty and safe)
+      const back = color === 'w' ? 0 : 7, o = opp(color);
+      if (x === 4 && y === back && attackScan(bd, 4, back, o, true) === Infinity) {
+        if (castle[color + 'K'] && bd[back][5] === '' && bd[back][6] === '' &&
+            attackScan(bd, 5, back, o, true) === Infinity &&
+            attackScan(bd, 6, back, o, true) === Infinity)
+          add(4, back, 6, back, { castle: 'K' });
+        if (castle[color + 'Q'] && bd[back][1] === '' && bd[back][2] === '' && bd[back][3] === '' &&
+            attackScan(bd, 3, back, o, true) === Infinity &&
+            attackScan(bd, 2, back, o, true) === Infinity)
+          add(4, back, 2, back, { castle: 'Q' });
+      }
+    } else {
+      const dirs = up === 'R' ? [[1,0],[-1,0],[0,1],[0,-1]]
+        : up === 'B' ? [[1,1],[1,-1],[-1,1],[-1,-1]]
+        : [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+      for (const [dx, dy] of dirs) {
+        let nx = x + dx, ny = y + dy;
+        while (nx >= 0 && nx < N && ny >= 0 && ny < N) {
+          const t = bd[ny][nx];
+          if (!t) add(x, y, nx, ny);
+          else { if (colorOf(t) !== color) add(x, y, nx, ny); break; }
+          nx += dx; ny += dy;
+        }
+      }
+    }
+  }
+  return moves;
+}
+
+// Apply move m to bd, returning a NEW board (handles en passant capture,
+// castling rook, and auto-queen promotion).
+function makeMove(bd, m) {
+  const nb = cloneBd(bd);
+  const p = nb[m.y1][m.x1];
+  nb[m.y1][m.x1] = '';
+  if (m.ep) nb[m.y1][m.x2] = '';
+  nb[m.y2][m.x2] = m.promo ? (colorOf(p) === 'w' ? 'Q' : 'q') : p;
+  if (m.castle === 'K') { nb[m.y1][5] = nb[m.y1][7]; nb[m.y1][7] = ''; }
+  if (m.castle === 'Q') { nb[m.y1][3] = nb[m.y1][0]; nb[m.y1][0] = ''; }
+  return nb;
+}
+
+function updateCastleRights(c, m) {
+  if (m.piece.toUpperCase() === 'K') {
+    if (colorOf(m.piece) === 'w') { c.wK = false; c.wQ = false; }
+    else { c.bK = false; c.bQ = false; }
+  }
+  const clear = (x, y, key) => {
+    if ((m.x1 === x && m.y1 === y) || (m.x2 === x && m.y2 === y)) c[key] = false;
+  };
+  clear(7, 0, 'wK'); clear(0, 0, 'wQ'); clear(7, 7, 'bK'); clear(0, 7, 'bQ');
+}
+function castleRightsAfter(m) {
+  const c = Object.assign({}, castleR);
+  updateCastleRights(c, m);
+  return c;
+}
+
+// All legal moves: pseudo-legal moves that do not leave the mover's king in
+// check. Each move carries its resulting board (m.board).
+function legalMoves(bd, color, castle, ep) {
+  const out = [];
+  for (const m of genPseudo(bd, color, castle, ep)) {
+    const nb = makeMove(bd, m);
+    const k = findKing(nb, color);
+    if (k && attackScan(nb, k.x, k.y, opp(color), true) === Infinity) {
+      m.board = nb;
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+function insufficientMaterial(bd) {
+  let minors = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const p = bd[y][x];
+    if (!p) continue;
+    const u = p.toUpperCase();
+    if (u === 'P' || u === 'R' || u === 'Q') return false;
+    if (u === 'N' || u === 'B') minors++;
+  }
+  return minors <= 1;
+}
+
+function materialCount(bd) {
+  let w = 0, b = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const p = bd[y][x];
+    if (!p) continue;
+    if (colorOf(p) === 'w') w += POINTS[p.toUpperCase()];
+    else b += POINTS[p.toUpperCase()];
+  }
+  return { w, b };
+}
+
+function boardKey() {
+  let s = '';
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) s += board[y][x] || '.';
+  s += turn;
+  if (castleR.wK) s += 'K'; if (castleR.wQ) s += 'Q';
+  if (castleR.bK) s += 'k'; if (castleR.bQ) s += 'q';
+  s += epSq ? coordName(epSq.x, epSq.y) : '-';
+  return s;
+}
+
+function capPoints(str) {
+  let s = 0;
+  for (const ch of str) s += POINTS[ch.toUpperCase()];
+  return s;
+}
+
+function newGame() {
+  board = startBoard();
+  turn = 'w';
+  castleR = { wK: true, wQ: true, bK: true, bQ: true };
+  epSq = null;
+  halfmove = 0;
+  captures = { w: '', b: '' };
+  history = [];
+  repMap = {};
+  repMap[boardKey()] = 1;
+  lastUci = null;
+  jevLastChoice = null;
+  gameOver = false;
+  sel = null;
+  selMoves = [];
+  moveSeq++;
+  document.getElementById('gameover').style.display = 'none';
+  setStatus(labels().white + ' (White) opens the game.');
+  draw();
+  setTimeout(whiteMove, 400);
+}
+
+// ---- Jev AI (TypeSafe System One) ----
+// When a TypeSafe API key is available (browser key entered with J, or the
+// server's TYPESAFE_API_KEY injected by server.js), White's moves are chosen
+// by the Jev decision model. Jev always plays — no fallback to the local
+// heuristic. On error or timeout, the game retries and waits. The only
+// fallback is when no key is set at all: the local heuristic plays White.
+const Jev = (() => {
+  // On localhost (served by server.js), use the proxy. Elsewhere
+  // (Pages, file://) go direct to the API — the browser key provides
+  // the Authorization header. CORS will block this on Pages (the API
+  // sends no CORS headers), but the error message is clearer than a 404.
+  const PROXY = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const ENDPOINT = PROXY ? '/jev' : 'https://api.typesafe.ai/v1/systemone';
+  const MODEL = 'jev-latest';
+  const LOG_MAX = 200;
+  const log = [];
+
+  let apiKey = '';
+  try { apiKey = localStorage.getItem('typesafe_api_key') || ''; } catch (e) {}
+  let serverKey = false;
+  // Resolves once we know whether the server has a key. The first move
+  // of the game is White's (Jev's), so the opening must wait for this.
+  const ready = PROXY
+    ? fetch('/jevstatus').then(r => r.json())
+        .then(d => { serverKey = !!d.serverKey; refreshHud(); })
+        .catch(() => {})
+    : Promise.resolve();
+
+  function addLog(entry) {
+    log.push(entry);
+    if (log.length > LOG_MAX) log.shift();
+  }
+
+  function boardText() {
+    const lines = [];
+    for (let y = N - 1; y >= 0; y--) {
+      let row = (y + 1) + ' ';
+      for (let x = 0; x < N; x++) {
+        row += (board[y][x] || '.');
+        if (x < N - 1) row += ' ';
+      }
+      lines.push(row);
+    }
+    lines.push('  ' + FILES.split('').join(' '));
+    return lines.join('\n');
+  }
+
+  function describeMove(m) {
+    const bits = [];
+    if (m.captured) bits.push('captures opponent ' + PIECE_NAME[m.captured.toUpperCase()] +
+      ' (' + POINTS[m.captured.toUpperCase()] + ' points)');
+    if (m.promo) bits.push('promotes your pawn to a queen (9 points)');
+    if (m.castle) bits.push('castles — moves your king to safety and brings your rook into play');
+    if (inCheck(board, 'w')) bits.push('takes your king out of check');
+    // Was the moved piece attacked (and hanging) before the move?
+    const preAtk = attackScan(board, m.x1, m.y1, 'b', false);
+    const preDef = attackScan(board, m.x1, m.y1, 'w', false);
+    if (preAtk < Infinity && (preDef === Infinity || preAtk < POINTS[m.piece.toUpperCase()]))
+      bits.push('rescues your attacked ' + PIECE_NAME[m.piece.toUpperCase()]);
+    // Resulting position: check, checkmate, stalemate, opponent threats
+    const givesCheck = inCheck(m.board, 'b');
+    const oppMoves = legalMoves(m.board, 'b', castleRightsAfter(m), null);
+    let oppBestCap = 0, oppCanCheck = false;
+    for (const om of oppMoves) {
+      if (om.captured) oppBestCap = Math.max(oppBestCap, POINTS[om.captured.toUpperCase()]);
+      if (inCheck(om.board, 'w')) oppCanCheck = true;
+    }
+    if (givesCheck && !oppMoves.length) bits.push('CHECKMATE — this wins the game');
+    else if (!givesCheck && !oppMoves.length) bits.push('stalemate — the game is a draw');
+    else {
+      if (givesCheck) bits.push('gives check');
+      const lookahead = [];
+      if (oppBestCap > 0) lookahead.push('opponent can capture ' + oppBestCap + ' points of material in reply');
+      if (oppCanCheck) lookahead.push('opponent can give check in reply');
+      if (!lookahead.length) lookahead.push('opponent has no immediate threat in reply');
+      bits.push(lookahead.join('; '));
+    }
+    // Own safety on the destination square
+    const atk = attackScan(m.board, m.x2, m.y2, 'b', false);
+    const def = attackScan(m.board, m.x2, m.y2, 'w', false);
+    const pv = POINTS[m.piece.toUpperCase()];
+    if (atk < Infinity && def === Infinity) bits.push('WARNING: leaves your ' + PIECE_NAME[m.piece.toUpperCase()] + ' undefended — it can be captured');
+    else if (atk < pv) bits.push('opponent may trade a cheaper piece for it');
+    // Development / center
+    const up = m.piece.toUpperCase();
+    const homeRank = colorOf(m.piece) === 'w' ? 0 : 7;
+    if ((up === 'N' || up === 'B') && m.y1 === homeRank && m.y2 !== homeRank) bits.push('develops a piece');
+    if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) bits.push('takes a central square');
+    if (!bits.length) bits.push('repositioning move');
+    return moveLabel(m) + ' — ' + bits.join(', ');
+  }
+
+  function buildState(moves) {
+    // Pieces under attack (both sides), so Jev sees threats before choosing
+    const inDanger = [], freeGrabs = [];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const p = board[y][x];
+      if (!p) continue;
+      const coord = coordName(x, y), name = PIECE_NAME[p.toUpperCase()];
+      if (colorOf(p) === 'w') {
+        const atk = attackScan(board, x, y, 'b', false);
+        if (atk < Infinity) {
+          const def = attackScan(board, x, y, 'w', false);
+          if (def === Infinity) inDanger.push('your ' + name + ' at ' + coord + ' is attacked and undefended — it can be captured for free');
+          else if (atk < POINTS[p.toUpperCase()]) inDanger.push('your ' + name + ' at ' + coord + ' is attacked by a cheaper piece — a trade loses material');
+        }
+      } else {
+        const atk = attackScan(board, x, y, 'w', false);
+        if (atk < Infinity && attackScan(board, x, y, 'b', false) === Infinity)
+          freeGrabs.push('opponent ' + name + ' at ' + coord + ' is undefended — you can capture it for free');
+      }
+    }
+    const takenW = captures.w ? captures.w.split('').map(c => PIECE_NAME[c.toUpperCase()]).join(', ') : 'nothing yet';
+    const takenB = captures.b ? captures.b.split('').map(c => PIECE_NAME[c.toUpperCase()]).join(', ') : 'nothing yet';
+    const mat = materialCount(board);
+    const lines = [
+      'Game of chess on an 8x8 board. You are White (uppercase letters); your opponent is Black (lowercase letters). You move first in the game and are now choosing your next move.',
+      'Material captured so far: you have taken ' + takenW + '; your opponent has taken ' + takenB + '.',
+      'Current board (ranks 8 at top down to 1, files a-h):',
+      boardText(),
+      "Opponent's last move: " + (lastUci || 'none (start of game)'),
+      'Your previous move: ' + (jevLastChoice || 'none yet'),
+      'Material on the board — you: ' + mat.w + ' points, opponent: ' + mat.b + ' points. ' +
+        (mat.w > mat.b ? 'You are ahead — keep your pieces safe and trade when it helps you.' :
+         mat.b > mat.w ? 'You are behind — fight for material and attack weakly defended pieces.' :
+         'The game is even — develop carefully and do not give away material.'),
+    ];
+    if (inCheck(board, 'w')) lines.push('You are in check! Every candidate move escapes it — choose the one that keeps your position safest.');
+    if (inDanger.length) {
+      lines.push('Your pieces in danger:');
+      for (const t of inDanger.slice(0, 6)) lines.push('  ' + t);
+      if (inDanger.length > 6) lines.push('  (and ' + (inDanger.length - 6) + ' more)');
+    }
+    if (freeGrabs.length) {
+      lines.push('Opponent pieces you can capture for free:');
+      for (const t of freeGrabs.slice(0, 6)) lines.push('  ' + t);
+      if (freeGrabs.length > 6) lines.push('  (and ' + (freeGrabs.length - 6) + ' more)');
+    }
+    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Prioritise, in order: checkmate, escaping check, capturing free or higher-value pieces, rescuing your attacked pieces, and developing knights and bishops. Avoid moves marked as leaving your pieces undefended. Material wins chess games — every undefended piece is a gift to the opponent. Develop quickly, castle early, and keep your pieces defended.');
+    return lines.join('\n');
+  }
+
+  async function query(moves) {
+    const criteria = {};
+    for (const m of moves) criteria[moveLabel(m)] = describeMove(m);
+    const stateStr = buildState(moves);
+    const body = {
+      model: MODEL,
+      state: stateStr,
+      questions: {
+        move: {
+          type: 'choice',
+          instructions: 'Which move should White play next? Prioritise checkmate, escaping check, and winning material; avoid leaving pieces undefended. Each option lists its tactical effects.',
+          criteria,
+        },
+      },
+    };
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 10000);
+    let resp;
+    try {
+      resp = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      throw new Error(e.name === 'AbortError' ? 'timeout' : 'network');
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const ans = data.answers && data.answers.move;
+    if (!ans || !ans.choice) throw new Error('no choice in response');
+    return { choice: ans.choice, confidence: ans.confidence || 0, probabilities: ans.probabilities || null, state: stateStr };
+  }
+
+  // Filter legal moves to the most relevant ones so Jev can focus.
+  // Always include: captures, checks, moves of attacked pieces, center
+  // and development moves. Limit to MAX_OPTIONS so the decision model
+  // is not overwhelmed by 40+ generic repositioning moves.
+  const MAX_OPTIONS = 30;
+  function filterMoves(moves) {
+    if (moves.length <= MAX_OPTIONS) return moves;
+    const scored = moves.map(m => {
+      let s = m.captured ? POINTS[m.captured.toUpperCase()] * 100 : 0;
+      if (inCheck(m.board, 'b')) s += 50;
+      if (attackScan(board, m.x1, m.y1, 'b', false) < Infinity) s += 100;
+      if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) s += 10;
+      s -= (Math.abs(m.x2 - 3.5) + Math.abs(m.y2 - 3.5));
+      s += Math.random() * 5; // slight randomness for variety
+      return { m, s };
+    });
+    scored.sort((a, b) => b.s - a.s);
+    return scored.slice(0, MAX_OPTIONS).map(x => x.m);
+  }
+
+  async function chooseMove(moves) {
+    const filtered = filterMoves(moves);
+    const res = await query(filtered);
+    // Play Jev's best option: the highest-probability legal move. No
+    // temperature sampling — Jev plays its best move, not for variety.
+    let picked = res.choice;
+    if (res.probabilities) {
+      const legal = new Set(filtered.map(m => moveLabel(m)));
+      const entries = Object.entries(res.probabilities).filter(([k]) => legal.has(k));
+      if (entries.length) picked = entries.reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+    }
+    addLog({ t: Date.now(), ok: true, choice: picked, jevChoice: res.choice, confidence: res.confidence, state: res.state, probabilities: res.probabilities });
+    return picked;
+  }
+
+  return {
+    chooseMove,
+    ready() { return ready; },
+    isEnabled() { return !!(apiKey || serverKey); },
+    isProxied() { return PROXY; },
+    logEntry(entry) { addLog(entry); },
+    getLog() { return log.slice(); },
+    clearLog() { log.length = 0; },
+    setKey(key) {
+      apiKey = key || '';
+      try { localStorage.setItem('typesafe_api_key', apiKey); } catch (e) {}
+    },
+    getKey() { return apiKey; },
+  };
+})();
+window.jevLog = () => Jev.getLog();
+window.jevClear = () => Jev.clearLog();
+
+// Local greedy AI — capture if possible, else avoid handing material to
+// the opponent, with a mild preference for the center. Deliberately
+// simple: no search, no positional evaluation, no king safety beyond
+// the check rules. Drives Black in autoplay mode and White when no
+// Jev API key is set, mirroring the Go repo's baseline heuristic.
+function heuristicPick(moves, color) {
+  if (!moves || !moves.length) return null;
+  const o = opp(color);
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    let s = (m.captured ? POINTS[m.captured.toUpperCase()] : 0) * 100;
+    // After the move, how much material can the opponent win in reply?
+    const oppMoves = legalMoves(m.board, o, castleRightsAfter(m), null);
+    let oppBestCap = 0;
+    for (const om of oppMoves) if (om.captured) oppBestCap = Math.max(oppBestCap, POINTS[om.captured.toUpperCase()]);
+    s -= oppBestCap * 80;
+    const check = inCheck(m.board, o);
+    if (!oppMoves.length) s += check ? 100000 : -10000; // checkmate wins; stalemate is nearly as bad as losing
+    else if (check) s += 30;
+    s -= (Math.abs(m.x2 - 3.5) + Math.abs(m.y2 - 3.5)); // mild center bias
+    s += Math.random() * 2; // tie-break variety
+    if (s > bestScore) { bestScore = s; best = m; }
+  }
+  return { move: best };
+}
+
+// Player labels. White is Jev when a key is available, otherwise the
+// local heuristic. In autoplay the local heuristic drives Black.
+// When both sides are the heuristic (autoplay without a key), they are
+// numbered: Local AI 1 (Black) vs Local AI 2 (White).
+function labels() {
+  const jev = Jev.isEnabled();
+  if (!autoplay) return { black: 'You', white: jev ? 'Jev' : 'Local AI' };
+  if (jev) return { black: 'Local AI', white: 'Jev' };
+  return { black: 'Local AI 1', white: 'Local AI 2' };
+}
+
+function applyMove(m, color) {
+  history.push({ board, turn, castleR: Object.assign({}, castleR), ep: epSq, halfmove, lastUci, repKey: null });
+  board = m.board;
+  updateCastleRights(castleR, m);
+  epSq = m.double ? { x: m.x1, y: (m.y1 + m.y2) / 2 } : null;
+  halfmove = (m.piece.toUpperCase() === 'P' || m.captured) ? 0 : halfmove + 1;
+  if (m.captured) captures[color] += m.captured;
+  lastUci = moveLabel(m);
+  if (color === 'w') jevLastChoice = moveLabel(m);
+  turn = opp(color);
+  sel = null;
+  selMoves = [];
+  draw();
+  // repetition count for the new position
+  const key = boardKey();
+  repMap[key] = (repMap[key] || 0) + 1;
+  history[history.length - 1].repKey = key;
+  // game end for the side to move now
+  const nowMoves = legalMoves(board, turn, castleR, epSq);
+  const checked = inCheck(board, turn);
+  const L = labels();
+  if (!nowMoves.length) {
+    if (checked) {
+      const winner = color === 'w' ? L.white : L.black;
+      const isYou = !autoplay && color === 'b';
+      return endGame('Checkmate — ' + (isYou ? 'you win' : winner + ' wins') +
+        ', ' + (color === 'w' ? '1-0' : '0-1') + '.');
+    }
+    return endGame('Draw — stalemate, 1/2-1/2.');
+  }
+  if (halfmove >= 100) return endGame('Draw — fifty-move rule, 1/2-1/2.');
+  if (insufficientMaterial(board)) return endGame('Draw — insufficient material, 1/2-1/2.');
+  if (repMap[key] >= 3) return endGame('Draw — threefold repetition, 1/2-1/2.');
+  // schedule the next mover
+  if (color === 'w') {
+    if (autoplay) {
+      setStatus(L.white + ' (White) played. ' + L.black + ' (Black) is thinking...');
+      setTimeout(blackAutoMove, AUTO_DELAY);
+    } else {
+      setStatus('Your move.');
+    }
+  } else {
+    setStatus(L.white + ' (White) is thinking...');
+    setTimeout(whiteMove, autoplay ? AUTO_DELAY : 350);
+  }
+}
+
+// Autoplay: the local heuristic drives Black against White (Jev or the
+// heuristic, depending on whether a key is set).
+function blackAutoMove() {
+  if (gameOver || !autoplay || turn !== 'b') return;
+  const moves = legalMoves(board, 'b', castleR, epSq);
+  if (!moves.length) return; // already handled by applyMove's end detection
+  const pick = heuristicPick(moves, 'b');
+  if (pick && pick.move) applyMove(pick.move, 'b');
+}
+
+// White's turn: Jev plays. No fallback to the local heuristic on errors —
+// only when no API key is set at all.
+function whiteMove(retries) {
+  if (gameOver || turn !== 'w') return;
+  if (retries === undefined) retries = 0;
+  const seq = moveSeq;
+  Jev.ready().then(() => {
+    if (gameOver || turn !== 'w' || moveSeq !== seq) return;
+    const moves = legalMoves(board, 'w', castleR, epSq);
+    if (!moves.length) return; // already handled by applyMove's end detection
+    if (!Jev.isEnabled()) {
+      // No key: fall back to the local heuristic so the game keeps playing.
+      // (This is the only fallback — low confidence and errors still retry.)
+      setHud(false);
+      const pick = heuristicPick(moves, 'w');
+      setStatus('Local AI (White) is playing (no Jev API key).');
+      if (pick && pick.move) applyMove(pick.move, 'w');
+      return;
+    }
+    setHud(true);
+    setStatus(labels().white + ' (White) is thinking...');
+    Jev.chooseMove(moves).then(sel => {
+      if (gameOver || turn !== 'w' || moveSeq !== seq) return;
+      const m = moves.find(mv => moveLabel(mv) === sel);
+      if (m) applyMove(m, 'w');
+      else if (retries < 3) {
+        Jev.logEntry({ t: Date.now(), ok: false, reason: 'Jev chose illegal move ' + sel, choice: sel, confidence: null, state: null, probabilities: null });
+        setStatus('Jev returned an illegal move — retrying...');
+        setTimeout(() => whiteMove(retries + 1), 1000);
+      } else {
+        Jev.logEntry({ t: Date.now(), ok: false, reason: 'Jev chose illegal move ' + sel + ' after ' + retries + ' retries', choice: sel, confidence: null, state: null, probabilities: null });
+        setStatus('Jev error — illegal move. Press J to check your API key' + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
+      }
+    }).catch(err => {
+      if (gameOver || turn !== 'w' || moveSeq !== seq) return;
+      const reason = err && err.message ? err.message : String(err);
+      Jev.logEntry({ t: Date.now(), ok: false, reason, choice: null, confidence: null, state: null, probabilities: null });
+      if (retries < 3) {
+        setStatus('Jev error (' + reason + ') — retrying...');
+        setTimeout(() => whiteMove(retries + 1), 1000);
+      } else {
+        setStatus('Jev error after ' + (retries + 1) + ' attempts: ' + reason + '. Press J to check your API key' + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
+      }
+    });
+  });
+}
+
+function endGame(msg) {
+  gameOver = true;
+  setStatus(msg);
+  draw();
+  const overlay = document.getElementById('gameover');
+  overlay.textContent = msg;
+  overlay.style.display = 'block';
+  if (autoplay) setTimeout(() => { if (autoplay) newGame(); }, 4000);
+}
+
+// Undo returns to the human's (Black's) turn: take back White's last
+// move and Black's last move, restoring the position before Black moved.
+function undo() {
+  if (!history.length || gameOver || autoplay) return;
+  let idx = -1;
+  for (let i = history.length - 1; i >= 0; i--)
+    if (history[i].turn === 'b') { idx = i; break; }
+  if (idx === -1) return;
+  for (let i = history.length - 1; i >= idx; i--) {
+    const k = history[i].repKey;
+    if (k && repMap[k]) repMap[k]--;
+  }
+  const h = history[idx];
+  history.length = idx;
+  board = h.board;
+  turn = h.turn;
+  castleR = h.castleR;
+  epSq = h.ep;
+  halfmove = h.halfmove;
+  lastUci = h.lastUci;
+  jevLastChoice = h.lastUci;
+  sel = null;
+  selMoves = [];
+  moveSeq++; // invalidate any pending Jev decision
+  document.getElementById('gameover').style.display = 'none';
+  setStatus('Your move — you are Black.');
+  draw();
+}
+
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+function draw() {
+  const ctx = document.getElementById('board').getContext('2d');
+  // squares
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const px = MARGIN + x * CELL, py = MARGIN + (N - 1 - y) * CELL;
+    ctx.fillStyle = (x + y) % 2 === 0 ? '#e9c884' : '#9c6b30';
+    ctx.fillRect(px, py, CELL + 1, CELL + 1);
+  }
+  const tint = (x, y, color) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(MARGIN + x * CELL, MARGIN + (N - 1 - y) * CELL, CELL + 1, CELL + 1);
+  };
+  // last move highlight
+  if (lastUci) {
+    const x1 = FILES.indexOf(lastUci[0]), y1 = +lastUci[1] - 1;
+    const x2 = FILES.indexOf(lastUci[2]), y2 = +lastUci[3] - 1;
+    tint(x1, y1, 'rgba(255,215,0,.28)');
+    tint(x2, y2, 'rgba(255,215,0,.28)');
+  }
+  // kings in check
+  for (const c of ['w', 'b']) {
+    const k = findKing(board, c);
+    if (k && inCheck(board, c)) tint(k.x, k.y, 'rgba(229,57,53,.55)');
+  }
+  // selection
+  if (sel) {
+    tint(sel.x, sel.y, 'rgba(76,175,80,.45)');
+    for (const m of selMoves) {
+      const px = MARGIN + m.x2 * CELL + CELL / 2, py = MARGIN + (N - 1 - m.y2) * CELL + CELL / 2;
+      ctx.beginPath();
+      ctx.arc(px, py, CELL * 0.13, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,.3)';
+      ctx.fill();
+    }
+  }
+  // pieces
+  ctx.font = 'bold ' + Math.floor(CELL * 0.74) + 'px "Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans",serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const p = board[y][x];
+    if (!p) continue;
+    const px = MARGIN + x * CELL + CELL / 2;
+    const py = MARGIN + (N - 1 - y) * CELL + CELL / 2 + 1;
+    ctx.lineWidth = 2;
+    if (isWhiteP(p)) { ctx.fillStyle = '#f8f8f8'; ctx.strokeStyle = '#222'; }
+    else { ctx.fillStyle = '#1a1a1a'; ctx.strokeStyle = '#000'; }
+    ctx.strokeText(GLYPH[p.toUpperCase()], px, py);
+    ctx.fillText(GLYPH[p.toUpperCase()], px, py);
+  }
+  updateScoreLine();
+}
+
+function updateScoreLine() {
+  const L = labels();
+  document.getElementById('score').textContent =
+    'Captures — \u25CF ' + L.black + ' (Black): ' + capPoints(captures.b) + ' pts' +
+    '   \u25CB ' + L.white + ' (White): ' + capPoints(captures.w) + ' pts';
+}
+
+document.getElementById('board').addEventListener('click', e => {
+  if (gameOver || autoplay || turn !== 'b') return;
+  const rect = e.target.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left - MARGIN) / CELL);
+  const y = (N - 1) - Math.floor((e.clientY - rect.top - MARGIN) / CELL);
+  if (x < 0 || x >= N || y < 0 || y >= N) return;
+  if (sel) {
+    const m = selMoves.find(mv => mv.x2 === x && mv.y2 === y);
+    if (m) { applyMove(m, 'b'); return; }
+  }
+  const p = board[y][x];
+  if (p && colorOf(p) === 'b' && !(sel && sel.x === x && sel.y === y)) {
+    sel = { x, y };
+    selMoves = legalMoves(board, 'b', castleR, epSq).filter(mv => mv.x1 === x && mv.y1 === y);
+  } else {
+    sel = null;
+    selMoves = [];
+  }
+  draw();
+});
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('newBtn').addEventListener('click', newGame);
+
+function toggleAutoplay() {
+  autoplay = !autoplay;
+  document.getElementById('autohud').style.display = autoplay ? 'block' : 'none';
+  document.getElementById('autoBtn').textContent = autoplay ? 'Autoplay: on (0)' : 'Autoplay: off (0)';
+  refreshHud();
+  if (autoplay) {
+    if (gameOver) newGame();
+    else {
+      const L = labels();
+      setStatus('Autoplay: ' + L.black + ' (Black) vs ' + L.white + ' (White).');
+      if (turn === 'b') setTimeout(blackAutoMove, AUTO_DELAY);
+      // if it is White's turn, a pending White decision resumes the loop
+    }
+  } else {
+    setStatus(turn === 'b' ? 'Your move — you are Black.' : labels().white + ' (White) is thinking...');
+  }
+}
+
+function setHud(enabled) {
+  const el = document.getElementById('jevhud');
+  el.textContent = 'WHITE: ' + labels().white.toUpperCase();
+  el.style.color = enabled ? '#4caf50' : '#e53935';
+  updateScoreLine();
+  updateMatchup();
+}
+
+function updateMatchup() {
+  const L = labels();
+  document.getElementById('matchup').textContent =
+    '\u25CF ' + L.black + ' (Black)  vs  \u25CB ' + L.white + ' (White)';
+}
+function refreshHud() { setHud(Jev.isEnabled()); }
+
+function renderJevLog() {
+  const panel = document.getElementById('jevlog');
+  const entries = Jev.getLog().slice(-10).reverse();
+  panel.textContent = entries.map(e =>
+    new Date(e.t).toLocaleTimeString() + '  ' +
+    (e.ok
+      ? 'play ' + e.choice + '  conf ' + e.confidence.toFixed(2) + (e.jevChoice !== e.choice ? '  (jev: ' + e.jevChoice + ')' : '')
+      : 'error: ' + e.reason)
+  ).join('\n') || 'No Jev decisions yet.';
+}
+
+function promptForKey() {
+  const key = prompt('Enter TypeSafe API key (leave empty to use the local AI for White instead of Jev). Note: Jev only works when served by node server.js on localhost — on GitHub Pages or file:// the API blocks cross-origin calls even with a key.', Jev.getKey() || '');
+  if (key !== null) Jev.setKey(key.trim());
+  refreshHud();
+}
+function toggleLog() {
+  const panel = document.getElementById('jevlog');
+  const show = panel.style.display !== 'block';
+  panel.style.display = show ? 'block' : 'none';
+  if (show) renderJevLog();
+}
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'j') promptForKey();
+  else if (k === '0') toggleAutoplay();
+  else if (k === 'l') toggleLog();
+});
+document.getElementById('autoBtn').addEventListener('click', toggleAutoplay);
+document.getElementById('keyBtn').addEventListener('click', promptForKey);
+document.getElementById('logBtn').addEventListener('click', toggleLog);
+
+newGame();
+refreshHud();
+updateMatchup();
+</script>
+</body>
+</html>
