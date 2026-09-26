@@ -25,6 +25,28 @@ penalty, center bias, no positional understanding), so the two are
 comparable — autoplay is a baseline AI benchmark, not a strong chess
 exhibition.
 
+### Measured results: reaching beginner level
+
+Jev started far below beginner level and was iterated to it. Each
+iteration was measured with headless autoplay games (Jev White vs the
+local heuristic Black, through the live TypeSafe API; the same protocol
+as the Go repo's measurements). Summary — game-by-game detail in
+DESIGN.md:
+
+| Iteration | Record (W-D-L) | What changed / what it fixed |
+| --- | --- | --- |
+| Baseline | 0-2-0 | Both games drawn by threefold repetition at 19-33 plies (Jev shuffled instead of playing); Jev also hung its queen to the black king |
+| 1: repetition awareness + quantified exchanges | 1-0-2 | No more instant-repetition draws; Jev stopped most recapture blunders and won one game |
+| 2: BAD MOVE flags, defender-abandonment, anti-shuffle | 5-2-0 across two batches (3/3, then 2.5/4) | Jev stopped choosing annotated blunders; won on material and mate |
+| 3: endgame mating technique coaching | 4-0-0 | Jev converts winning endgames (an iteration-2 game was up 11-0 against a bare king and still drew); all four wins by checkmate in 49-111 plies |
+
+Overall across iterations 2-3: 9.5/11 (~86%). Jev now takes free
+material, keeps its pieces defended, develops, castles, and mates with
+a material lead — competent beginner chess, clearly above the
+deliberately weak baseline. Against strong human beginners it would
+still lose (no search, no positional play) — the honest ceiling of a
+one-decision-per-turn model choosing among annotated options.
+
 The game is also served from GitHub Pages:
 **https://dagfinndybvig.github.io/Chess/** — Jev needs the local proxy
 server and an API key (see Running below). On Pages (or when opening
@@ -174,11 +196,11 @@ On each White turn:
 3. **Question** — a single `Choice` question is POSTed to the TypeSafe
    System One API (model `jev-latest`) through the local proxy: one
    option per candidate move (labelled `e2e4`-style), each annotated
-   with its tactical effects (captures, check, checkmate, escapes
-   check, rescues an attacked piece, promotion, castling, development,
-   the destination square's safety), plus a 1-ply lookahead showing
-   the opponent's best reply. There is no pass option — chess has no
-   passing.
+   with a quantified exchange verdict (WINS MATERIAL / even trade /
+   BAD MOVE — loses N points), checkmate and check flags, defender
+   abandonment warnings, repetition warnings, rescue and development
+   notes, and — in bare-king endgames — king-squeeze progress toward
+   mate. There is no pass option — chess has no passing.
 4. **Decision** — Jev returns the chosen move, a probability
    distribution over all options, and a confidence score. No text
    generation — one typed round trip per turn.

@@ -134,6 +134,20 @@ repo's AGENTS.md — the pattern is identical). Known traps:
 - `jevLastChoice` (White's previous move, shown in the state text) is
   set in `applyMove` for every White move — Jev and heuristic-fallback
   alike. Keep it that way (the Go repo had a regression here).
+- `moveList` (all moves played, for the state text's history line and
+  the anti-shuffle detection) is pushed in `applyMove` and reset in
+  `newGame`. Keep both updated together.
+- `describeMove`'s annotations drive Jev's skill level and were
+  iterated to beginner strength against the heuristic (see DESIGN.md's
+  measured results). The load-bearing ones: the quantified 3-ply
+  exchange verdict (BAD MOVE / WINS MATERIAL), defender-abandonment
+  detection, third-occurrence repetition warnings, the passive-shuffle
+  flag, and the `endgameMode` king-squeeze annotations. If you change
+  them, re-run headless autoplay games and compare — do not trust
+  descriptions alone.
+- `endgameMode` is computed per turn in `query()` (via `kingHuntMode()`)
+  BEFORE the criteria are built, because `describeMove` reads it.
+  Preserve that ordering.
 - `moveSeq` invalidates pending Jev decisions: `whiteMove` captures it
   before its async work, and `undo`/`newGame` bump it. A Jev answer
   arriving after an undo or new game must be discarded, not played.

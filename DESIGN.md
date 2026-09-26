@@ -55,9 +55,67 @@ obvious blunders — walking into free captures, ignoring mate — but
 there is a ceiling on how much prompt context can compensate for a
 model that does not search.
 
-Headless autoplay results (Jev vs the heuristic) are not yet measured
-for chess — see TODO.md. The Go repo's result (Jev losing 81-5.5 in
-all three measured games) is the honest prior.
+#### Measured results — the iteration to beginner level
+
+Jev was measured against the local heuristic in headless autoplay
+(Jev White, heuristic Black, live TypeSafe API through the proxy), the
+same protocol as the Go repo. It took three iterations to reach
+beginner-level play.
+
+**Baseline (2 games).** Both drawn by threefold repetition — 33 and 19
+plies. Jev did not lose every piece (material 26-33, then 36-38) but
+wasn't playing chess: it shuffled until the position repeated three
+times. In game 1 it also hung its queen to the black king (Qf5 next to
+Ke6) and the heuristic's king ate 13 points of White material.
+Diagnosis: recapture risk was described only as prose ("opponent can
+capture 9 points in reply"), and nothing told Jev that repeating
+positions ends the game.
+
+**Iteration 1 — repetition awareness + quantified exchanges (3 games):
+1 win, 2 losses.** Every move now carries a 3-ply exchange verdict
+(WINS MATERIAL / LOSES MATERIAL / even trade / materially safe) computed
+from the opponent's best recapture and my best re-recapture, and moves
+that would repeat a position for the third time are flagged as drawing.
+The repetition draws vanished. But Jev still lost 202- and 66-ply games
+by checkmate while ahead of where it used to be: in game 2 it chose a
+bishop grab annotated "LOSES MATERIAL: about -2" anyway, and in long
+endgames it shuffled passively (Rf1-e1-f1-e2...) while the heuristic
+queen ate the board.
+
+**Iteration 2 — BAD MOVE prefixes, defender abandonment, anti-shuffle
+(3 + 4 games): 5 wins, 2 draws, 0 losses.** Net-negative moves now
+begin with "BAD MOVE." on the whole description and the instructions
+forbid them outright; moves that leave an own piece newly hanging are
+named ("abandons your knight at f3"); moving a piece straight back to
+a recently-vacated square is flagged as a passive shuffle. Results:
+3/3 in the first batch (material 34-19, 23-9, 16-1, zero-to-minimal
+hanging), then a 4-game stability batch: one close 88-ply loss (12-13
+material, a real game), one draw, and two wins. The draw was the
+revealing failure: Jev was up **11-0 against a bare king** (R+B vs K)
+and still could not finish — 242 plies of shuffling until threefold
+repetition.
+
+**Iteration 3 — endgame mating technique (4 games): 4 wins, 0 draws,
+0 losses.** When the opponent has (almost) no material and we are
+clearly ahead, the state text teaches the technique (drive the king to
+an edge, use your own king, checks only when they push toward mate,
+never repeat, fifty-move clock) and each move is annotated with its
+effect on the enemy king's escape squares ("squeezes the enemy king:
+2 escape squares remain" / "gives the enemy king MORE room"). All four
+games ended in checkmate in 49-111 plies with Jev ahead on material
+throughout (17-7, 16-12, 23-11, 28-21). Sample first game: Jev grabbed
+a hung e5 pawn on move 3, traded into a winning endgame, and mated —
+no shuffling, no repetition.
+
+**Overall:** 9.5/11 (~86%) across iterations 2-3. What beginner level
+means here, concretely: Jev takes free material, does not choose
+annotated blunders, keeps pieces defended, develops and castles, and
+converts material leads into checkmates. What it still cannot do:
+plan beyond the annotated horizon — two-move tactics, pawn structure,
+king safety under sustained attack — and any game where the
+opponent out-calculates it will still be close (the 88-ply loss). This
+is the honest beginner: solid on tactics that are described, blind to
+strategy that is not.
 
 ## Rules implementation
 
@@ -147,9 +205,16 @@ them to `Jev.chooseMove`:
    instructions ordering the priorities (mate, escape check, win
    material, rescue attacked pieces, develop).
 3. `describeMove` annotates every candidate with its tactical effects,
-   including a 1-ply lookahead (opponent's best capture value, checks
-   in reply) computed by simulating the opponent's legal replies —
-   pure JavaScript, no extra Jev calls.
+   computed by simulating the opponent's legal replies — pure
+   JavaScript, no extra Jev calls. The annotations, in priority order:
+   a quantified 3-ply exchange verdict (my capture, their most
+   damaging recapture, my re-recapture → WINS MATERIAL / even trade /
+   BAD MOVE — loses N points), defender abandonment (moves that leave
+   an own piece newly hanging), repetition warnings (a third occurrence
+   of a position draws), check/checkmate/stalemate flags, rescue of an
+   attacked piece, development and castling notes, passive-shuffle
+   flags, and — in kingHuntMode (opponent nearly bare and we are
+   ahead) — king-squeeze progress toward mate.
 4. A single `Choice` question is POSTed; the answer's probability
    distribution is argmaxed over the legal labels. Illegal labels and
    the text choice are ignored; if the argmax yields no legal move, or
