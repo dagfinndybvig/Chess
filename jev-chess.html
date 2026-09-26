@@ -375,6 +375,34 @@ const Jev = (() => {
     return lines.join('\n');
   }
 
+  // Endgame coaching: when the opponent has (almost) no material and we
+  // are clearly ahead, Jev must be taught to finish — box the king to
+  // an edge and mate, never shuffle into a repetition or fifty-move draw.
+  function kingHuntMode() {
+    let blackPts = 0, blackPieces = 0;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const p = board[y][x];
+      if (p && p !== p.toUpperCase() && p !== 'k') { blackPts += POINTS[p.toUpperCase()]; blackPieces++; }
+    }
+    if (blackPieces === 0) return true;
+    const mat = materialCount(board);
+    return blackPts <= 2 && mat.w - mat.b >= 5;
+  }
+  let endgameMode = false;
+
+  function kingFreeSquares(bd, k) {
+    let free = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const nx = k.x + dx, ny = k.y + dy;
+      if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
+      if (bd[ny][nx] !== '') continue;
+      if (attackScan(bd, nx, ny, 'w', true) < Infinity) continue;
+      free++;
+    }
+    return free;
+  }
+
   function describeMove(m) {
     const bits = [];
     const up = m.piece.toUpperCase();
@@ -448,6 +476,22 @@ const Jev = (() => {
     const rev = coordName(m.x2, m.y2) + coordName(m.x1, m.y1);
     if (!m.captured && !givesCheck && moveList.slice(-6).includes(rev))
       bits.push('passive shuffle: moves the piece straight back where it recently came from — it makes no progress; prefer a move that improves your position or creates a threat');
+    // Endgame: everything is judged by progress toward mate
+    if (endgameMode) {
+      const bk = findKing(board, 'b');
+      const bk2 = findKing(m.board, 'b');
+      const freeBefore = kingFreeSquares(board, bk);
+      const freeAfter = kingFreeSquares(m.board, bk2);
+      if (freeAfter < freeBefore) bits.push('squeezes the enemy king: it will have only ' + freeAfter + ' escape square' + (freeAfter === 1 ? '' : 's'));
+      else if (freeAfter > freeBefore) bits.push('gives the enemy king MORE room — it escapes toward the center; avoid this');
+      if (givesCheck) bits.push('check — use checks only to push the king toward the edge or to mate, not to repeat');
+      if (m.piece === 'K') {
+        const dBefore = Math.abs(m.x1 - bk.x) + Math.abs(m.y1 - bk.y);
+        const dAfter = Math.abs(m.x2 - bk.x) + Math.abs(m.y2 - bk.y);
+        if (dAfter < dBefore) bits.push('advances your king toward the enemy king — correct endgame mating technique');
+      }
+      if (repCount >= 1 && !givesCheck) bits.push('WARNING: in a winning endgame, repeating positions throws the win away — every move must make progress toward mate');
+    }
     // Development / center
     const homeRank = colorOf(m.piece) === 'w' ? 0 : 7;
     if ((up === 'N' || up === 'B') && m.y1 === homeRank && m.y2 !== homeRank) bits.push('develops a piece');
@@ -492,6 +536,9 @@ const Jev = (() => {
          'The game is even — develop carefully and do not give away material.'),
     ];
     if (inCheck(board, 'w')) lines.push('You are in check! Every candidate move escapes it — choose the one that keeps your position safest.');
+    if (kingHuntMode()) {
+      lines.push('ENDGAME — the opponent has almost no material and you are winning. ONLY CHECKMATE wins: a draw by repetition or the fifty-move rule throws the entire win away. Mating technique: use your king and pieces together to take away the enemy king\'s escape squares and drive it to an edge or corner; advance your own king to help (a rook or queen alone cannot mate in the middle of the board); give checks only when they push the king toward the edge or finish the mate; NEVER repeat a position — every move must reduce the enemy king\'s freedom. Fifty-move clock: ' + halfmove + ' halfmoves since the last capture or pawn move (100 draws).');
+    }
     const repN = repMap[boardKey()] || 1;
     lines.push('Repetition: the current position has occurred ' + repN + ' time' + (repN === 1 ? '' : 's') + '. Three occurrences of ANY position ends the game as a draw (1/2-1/2).' +
       (repN >= 2 ? ' CRITICAL: this position has occurred twice — repeating it once more DRAWS THE GAME. You must choose a move that changes the position.' : ' Keep making progress; do not shuffle pieces back and forth.'));
@@ -502,7 +549,8 @@ const Jev = (() => {
         parts.push((Math.floor(moveList.length / 2) - Math.floor(recent.length / 2) + Math.floor(i / 2) + 1) + '. ' + recent[i] + ' ' + (recent[i + 1] || ''));
       lines.push('Recent moves (White first in each pair)' + (moveList.length > 12 ? ', last 12' : '') + ': ' + parts.join(', ') + '. Do not move a piece back to a square it just came from unless it is tactically necessary.');
     }
-    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Priorities in strict order: 1) CHECKMATE, 2) escaping check (all listed moves escape it — pick the safest), 3) moves marked WINS MATERIAL, 4) rescuing your attacked pieces, 5) developing knights and bishops and castling your king to safety. NEVER choose an option whose description starts with "BAD MOVE" — those lose material or draw the game. Do not shuffle pieces back and forth: prefer moves that develop, create threats, or improve your position. If you are behind on material you must attack weak points; if you are ahead, keep your pieces defended and simplify. Material wins chess games — every undefended piece is a gift to the opponent.');
+    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Priorities in strict order: 1) CHECKMATE, 2) escaping check (all listed moves escape it — pick the safest), 3) moves marked WINS MATERIAL, 4) rescuing your attacked pieces, 5) developing knights and bishops and castling your king to safety. NEVER choose an option whose description starts with "BAD MOVE" — those lose material or draw the game. Do not shuffle pieces back and forth: prefer moves that develop, create threats, or improve your position. If you are behind on material you must attack weak points; if you are ahead, keep your pieces defended and simplify. Material wins chess games — every undefended piece is a gift to the opponent.' +
+      (kingHuntMode() ? ' In this endgame the only goal is checkmate: pick the move that most reduces the enemy king\'s escape squares.' : ''));
     if (inDanger.length) {
       lines.push('Your pieces in danger:');
       for (const t of inDanger.slice(0, 6)) lines.push('  ' + t);
@@ -517,6 +565,7 @@ const Jev = (() => {
   }
 
   async function query(moves) {
+    endgameMode = kingHuntMode();
     const criteria = {};
     for (const m of moves) criteria[moveLabel(m)] = describeMove(m);
     const stateStr = buildState(moves);
