@@ -47,6 +47,16 @@ deliberately weak baseline. Against strong human beginners it would
 still lose (no search, no positional play) — the honest ceiling of a
 one-decision-per-turn model choosing among annotated options.
 
+**Fresh confirmation run (8 games, same protocol).** Re-measured after
+the line-ending/git cleanup to confirm the level still holds: **6.5/8
+(~81%)** — 6 wins by checkmate, 1 stalemate draw, 1 game that hit the
+250-ply cap while Jev was down on material. Batch 1 was 2.5/4 (the
+stalemate came with Jev up 10-1; the capped game had Jev down 1-6);
+batch 2 was a clean 4/4, all checkmate. The stalemate-in-a-winning-
+position is the one recurring weakness — Jev drives the king to the
+edge but does not always avoid stalemating it — and is the next
+candidate to coach (see TODO).
+
 The game is also served from GitHub Pages:
 **https://dagfinndybvig.github.io/Chess/** — Jev needs the local proxy
 server and an API key (see Running below). On Pages (or when opening

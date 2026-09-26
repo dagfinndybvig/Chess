@@ -117,6 +117,26 @@ opponent out-calculates it will still be close (the 88-ply loss). This
 is the honest beginner: solid on tactics that are described, blind to
 strategy that is not.
 
+**Fresh confirmation run (8 games, same protocol).** Re-measured after
+the git line-ending cleanup to confirm the level still holds. Result:
+**6.5/8 (~81%)** — 6 checkmate wins, 1 stalemate draw, 1 game that hit
+the 250-ply cap with Jev down on material.
+
+- Batch 1 (2.5/4): game 1 was a **stalemate draw** with Jev up 10-1
+  (219 plies) — the kingHuntMode coaching drove the king to the edge
+  but did not avoid stalemating it; game 2 a 165-ply checkmate (31-0);
+  game 3 a 77-ply checkmate (18-16); game 4 hit the 250-ply cap with
+  Jev down 1-6 (it had lost the material battle and shuffled).
+- Batch 2 (4/4): all checkmate — 41 plies (31-13), 207 plies (10-0,
+  a converted bare-king endgame), 77 plies (24-13), 53 plies (22-4).
+
+The batch-1 stalemate is the one recurring weakness: in a winning
+endgame Jev sometimes stalemates the enemy king instead of mating it.
+It is not consistent (batch 2 converted the same 10-0 endgame to
+checkmate), but it is the next candidate to coach — a stalemate
+warning on any move that leaves the opponent with no legal moves and
+no check.
+
 ## Rules implementation
 
 The board is an 8x8 array, `board[y][x]`, with `y=0` at rank 1 (White's

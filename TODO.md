@@ -24,14 +24,19 @@
 - [x] Docs report the measured plays (README summary, DESIGN game
       detail)
 - [x] Everything pushed to github.com/dagfinndybvig/Chess
+- [x] Fresh confirmation run (8 games, 6.5/8) after the git cleanup —
+      level holds; one stalemate-in-a-winning-position weakness noted
 
 Jev now plays at least beginner chess against the local heuristic:
 takes free material, keeps pieces defended, develops, castles, and
 converts winning endgames into checkmates (9.5/11 across the last two
-iterations).
+iterations; 6.5/8 on the fresh re-measure).
 
 ## Next steps
 
+- [ ] Stalemate avoidance: warn Jev on any move that leaves the
+      opponent with no legal moves and no check — it stalemated a bare
+      king while up 10-1 in the fresh run (batch 1, game 1)
 - [ ] Measure against a stronger baseline: give the local heuristic a
       2-ply search or material+mobility evaluation, and see where Jev's
       beginner level actually caps out
