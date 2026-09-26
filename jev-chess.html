@@ -395,15 +395,37 @@ const Jev = (() => {
       if (inCheck(om.board, 'w')) oppCanCheck = true;
     }
     const net = gain - oppReplyScore;
+    let bad = false;
     if (givesCheck && !oppMoves.length) bits.push('CHECKMATE — WINS THE GAME');
     else if (!givesCheck && !oppMoves.length) bits.push('stalemate — DRAWS THE GAME');
     else {
       if (net > 0) bits.push('WINS MATERIAL: nets about +' + net + ' point' + (net === 1 ? '' : 's') + ' in the exchange');
-      else if (net < 0) bits.push('LOSES MATERIAL: about ' + net + ' point' + (net === -1 ? '' : 's') + " after the opponent's best reply — avoid this unless it wins the game or saves more material");
+      else if (net < 0) {
+        bits.push('BAD MOVE — loses about ' + (-net) + ' point' + (net === -1 ? '' : 's') + ': the opponent wins material in reply with no compensation. NEVER choose this.');
+        bad = true;
+      }
       else if (gain > 0) bits.push('even trade: captures a ' + PIECE_NAME[m.captured.toUpperCase()] + ' but the opponent recaptures');
       else bits.push('materially safe');
       if (givesCheck) bits.push('gives check');
       if (oppCanCheck) bits.push('opponent can give check in reply');
+    }
+    // Defender abandonment: does this move leave one of your OTHER pieces
+    // hanging that was not hanging before?
+    const newlyHanging = [];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const p = m.board[y][x];
+      if (!p || p !== p.toUpperCase() || p === 'K') continue;
+      if (x === m.x2 && y === m.y2) continue; // the moved piece is covered by the verdict
+      if (attackScan(m.board, x, y, 'b', false) < Infinity && attackScan(m.board, x, y, 'w', false) === Infinity) {
+        const before = board[y][x];
+        const wasHanging = before && before === before.toUpperCase() &&
+          attackScan(board, x, y, 'b', false) < Infinity && attackScan(board, x, y, 'w', false) === Infinity;
+        if (!wasHanging) newlyHanging.push(PIECE_NAME[p] + ' at ' + coordName(x, y));
+      }
+    }
+    if (newlyHanging.length) {
+      bits.push('BAD MOVE — abandons your ' + newlyHanging.slice(0, 2).join(' and ') + ': it can now be captured for free');
+      bad = true;
     }
     if (m.captured) bits.push('captures opponent ' + PIECE_NAME[m.captured.toUpperCase()] + ' (' + gain + ' points)');
     if (m.promo) bits.push('promotes your pawn to a queen (9 points)');
@@ -417,14 +439,21 @@ const Jev = (() => {
     // Would this move repeat a position? Three occurrences is a draw.
     const repCount = repMap[positionKey(m.board, 'b', castleRightsAfter(m),
       m.double ? { x: m.x1, y: (m.y1 + m.y2) / 2 } : null)] || 0;
-    if (repCount >= 2) bits.push('WARNING: repeats a position for the THIRD time — this move DRAWS THE GAME immediately (you give up the chance to win)');
+    if (repCount >= 2) {
+      bits.push('BAD MOVE — repeats a position for the THIRD time: this move DRAWS THE GAME immediately and gives up the chance to win. NEVER choose this.');
+      bad = true;
+    }
     else if (repCount === 1) bits.push('repeats a position seen once before — one more repeat of it would draw');
+    // Anti-shuffle: moving a piece straight back to a square it recently left
+    const rev = coordName(m.x2, m.y2) + coordName(m.x1, m.y1);
+    if (!m.captured && !givesCheck && moveList.slice(-6).includes(rev))
+      bits.push('passive shuffle: moves the piece straight back where it recently came from — it makes no progress; prefer a move that improves your position or creates a threat');
     // Development / center
     const homeRank = colorOf(m.piece) === 'w' ? 0 : 7;
     if ((up === 'N' || up === 'B') && m.y1 === homeRank && m.y2 !== homeRank) bits.push('develops a piece');
     if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) bits.push('takes a central square');
     if (!bits.length) bits.push('repositioning move');
-    return moveLabel(m) + ' — ' + bits.join(', ');
+    return (bad ? 'BAD MOVE. ' : '') + moveLabel(m) + ' — ' + bits.join(', ');
   }
 
   function buildState(moves) {
@@ -473,7 +502,7 @@ const Jev = (() => {
         parts.push((Math.floor(moveList.length / 2) - Math.floor(recent.length / 2) + Math.floor(i / 2) + 1) + '. ' + recent[i] + ' ' + (recent[i + 1] || ''));
       lines.push('Recent moves (White first in each pair)' + (moveList.length > 12 ? ', last 12' : '') + ': ' + parts.join(', ') + '. Do not move a piece back to a square it just came from unless it is tactically necessary.');
     }
-    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Priorities in strict order: 1) CHECKMATE, 2) escaping check (all listed moves escape it — pick the safest), 3) moves marked WINS MATERIAL, 4) rescuing your attacked pieces, 5) developing knights and bishops and castling your king to safety. NEVER choose a move marked LOSES MATERIAL unless it checkmates or saves more material. NEVER choose a move that draws by repetition while you can still play on. Material wins chess games — every undefended piece is a gift to the opponent.');
+    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Priorities in strict order: 1) CHECKMATE, 2) escaping check (all listed moves escape it — pick the safest), 3) moves marked WINS MATERIAL, 4) rescuing your attacked pieces, 5) developing knights and bishops and castling your king to safety. NEVER choose an option whose description starts with "BAD MOVE" — those lose material or draw the game. Do not shuffle pieces back and forth: prefer moves that develop, create threats, or improve your position. If you are behind on material you must attack weak points; if you are ahead, keep your pieces defended and simplify. Material wins chess games — every undefended piece is a gift to the opponent.');
     if (inDanger.length) {
       lines.push('Your pieces in danger:');
       for (const t of inDanger.slice(0, 6)) lines.push('  ' + t);
@@ -497,7 +526,7 @@ const Jev = (() => {
       questions: {
         move: {
           type: 'choice',
-          instructions: 'Which move should White play next? In strict order: checkmate, escaping check, moves marked WINS MATERIAL, rescuing attacked pieces, developing and castling. NEVER pick a move marked LOSES MATERIAL, and NEVER pick a move that draws by repetition while the game can continue. Each option lists its tactical effects.',
+          instructions: 'Which move should White play next? In strict order: checkmate, escaping check, moves marked WINS MATERIAL, rescuing attacked pieces, developing and castling. NEVER pick an option whose description starts with "BAD MOVE" — it loses material or draws the game. Do not shuffle pieces back and forth. Each option lists its tactical effects.',
           criteria,
         },
       },
