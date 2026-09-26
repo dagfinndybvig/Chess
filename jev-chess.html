@@ -62,7 +62,7 @@ const GLYPH = { K: '\u265A', Q: '\u265B', R: '\u265C', B: '\u265D', N: '\u265E',
 const MARGIN = 24, CELL = (468 - 2 * MARGIN) / N;
 const AUTO_DELAY = 700; // pause between autoplay moves
 
-let board, turn, castleR, epSq, halfmove, captures, history, repMap,
+let board, turn, castleR, epSq, halfmove, captures, history, repMap, moveList,
     lastUci, jevLastChoice, gameOver, sel, selMoves, moveSeq = 0;
 let autoplay = false;
 
@@ -285,14 +285,18 @@ function materialCount(bd) {
   return { w, b };
 }
 
-function boardKey() {
+function positionKey(bd, turnArg, castle, ep) {
   let s = '';
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) s += board[y][x] || '.';
-  s += turn;
-  if (castleR.wK) s += 'K'; if (castleR.wQ) s += 'Q';
-  if (castleR.bK) s += 'k'; if (castleR.bQ) s += 'q';
-  s += epSq ? coordName(epSq.x, epSq.y) : '-';
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) s += bd[y][x] || '.';
+  s += turnArg;
+  if (castle.wK) s += 'K'; if (castle.wQ) s += 'Q';
+  if (castle.bK) s += 'k'; if (castle.bQ) s += 'q';
+  s += ep ? coordName(ep.x, ep.y) : '-';
   return s;
+}
+
+function boardKey() {
+  return positionKey(board, turn, castleR, epSq);
 }
 
 function capPoints(str) {
@@ -311,6 +315,7 @@ function newGame() {
   history = [];
   repMap = {};
   repMap[boardKey()] = 1;
+  moveList = [];
   lastUci = null;
   jevLastChoice = null;
   gameOver = false;
@@ -372,42 +377,49 @@ const Jev = (() => {
 
   function describeMove(m) {
     const bits = [];
-    if (m.captured) bits.push('captures opponent ' + PIECE_NAME[m.captured.toUpperCase()] +
-      ' (' + POINTS[m.captured.toUpperCase()] + ' points)');
+    const up = m.piece.toUpperCase();
+    const gain = m.captured ? POINTS[m.captured.toUpperCase()] : 0;
+    // Resulting position: check, mate, and a quantified 3-ply exchange line
+    // (my capture, opponent's most damaging recapture, my recapture).
+    const givesCheck = inCheck(m.board, 'b');
+    const oppMoves = legalMoves(m.board, 'b', castleRightsAfter(m), null);
+    let oppReplyScore = 0, oppCanCheck = false;
+    for (const om of oppMoves) {
+      if (om.captured) {
+        const capVal = POINTS[om.captured.toUpperCase()];
+        // after their capture: if the piece they moved is defended, I recapture
+        const defended = attackScan(om.board, om.x2, om.y2, 'w', false) < Infinity;
+        const score = capVal - (defended ? POINTS[om.piece.toUpperCase()] : 0);
+        if (score > oppReplyScore) oppReplyScore = score;
+      }
+      if (inCheck(om.board, 'w')) oppCanCheck = true;
+    }
+    const net = gain - oppReplyScore;
+    if (givesCheck && !oppMoves.length) bits.push('CHECKMATE — WINS THE GAME');
+    else if (!givesCheck && !oppMoves.length) bits.push('stalemate — DRAWS THE GAME');
+    else {
+      if (net > 0) bits.push('WINS MATERIAL: nets about +' + net + ' point' + (net === 1 ? '' : 's') + ' in the exchange');
+      else if (net < 0) bits.push('LOSES MATERIAL: about ' + net + ' point' + (net === -1 ? '' : 's') + " after the opponent's best reply — avoid this unless it wins the game or saves more material");
+      else if (gain > 0) bits.push('even trade: captures a ' + PIECE_NAME[m.captured.toUpperCase()] + ' but the opponent recaptures');
+      else bits.push('materially safe');
+      if (givesCheck) bits.push('gives check');
+      if (oppCanCheck) bits.push('opponent can give check in reply');
+    }
+    if (m.captured) bits.push('captures opponent ' + PIECE_NAME[m.captured.toUpperCase()] + ' (' + gain + ' points)');
     if (m.promo) bits.push('promotes your pawn to a queen (9 points)');
     if (m.castle) bits.push('castles — moves your king to safety and brings your rook into play');
     if (inCheck(board, 'w')) bits.push('takes your king out of check');
     // Was the moved piece attacked (and hanging) before the move?
     const preAtk = attackScan(board, m.x1, m.y1, 'b', false);
     const preDef = attackScan(board, m.x1, m.y1, 'w', false);
-    if (preAtk < Infinity && (preDef === Infinity || preAtk < POINTS[m.piece.toUpperCase()]))
-      bits.push('rescues your attacked ' + PIECE_NAME[m.piece.toUpperCase()]);
-    // Resulting position: check, checkmate, stalemate, opponent threats
-    const givesCheck = inCheck(m.board, 'b');
-    const oppMoves = legalMoves(m.board, 'b', castleRightsAfter(m), null);
-    let oppBestCap = 0, oppCanCheck = false;
-    for (const om of oppMoves) {
-      if (om.captured) oppBestCap = Math.max(oppBestCap, POINTS[om.captured.toUpperCase()]);
-      if (inCheck(om.board, 'w')) oppCanCheck = true;
-    }
-    if (givesCheck && !oppMoves.length) bits.push('CHECKMATE — this wins the game');
-    else if (!givesCheck && !oppMoves.length) bits.push('stalemate — the game is a draw');
-    else {
-      if (givesCheck) bits.push('gives check');
-      const lookahead = [];
-      if (oppBestCap > 0) lookahead.push('opponent can capture ' + oppBestCap + ' points of material in reply');
-      if (oppCanCheck) lookahead.push('opponent can give check in reply');
-      if (!lookahead.length) lookahead.push('opponent has no immediate threat in reply');
-      bits.push(lookahead.join('; '));
-    }
-    // Own safety on the destination square
-    const atk = attackScan(m.board, m.x2, m.y2, 'b', false);
-    const def = attackScan(m.board, m.x2, m.y2, 'w', false);
-    const pv = POINTS[m.piece.toUpperCase()];
-    if (atk < Infinity && def === Infinity) bits.push('WARNING: leaves your ' + PIECE_NAME[m.piece.toUpperCase()] + ' undefended — it can be captured');
-    else if (atk < pv) bits.push('opponent may trade a cheaper piece for it');
+    if (preAtk < Infinity && (preDef === Infinity || preAtk < POINTS[up]))
+      bits.push('rescues your attacked ' + PIECE_NAME[up]);
+    // Would this move repeat a position? Three occurrences is a draw.
+    const repCount = repMap[positionKey(m.board, 'b', castleRightsAfter(m),
+      m.double ? { x: m.x1, y: (m.y1 + m.y2) / 2 } : null)] || 0;
+    if (repCount >= 2) bits.push('WARNING: repeats a position for the THIRD time — this move DRAWS THE GAME immediately (you give up the chance to win)');
+    else if (repCount === 1) bits.push('repeats a position seen once before — one more repeat of it would draw');
     // Development / center
-    const up = m.piece.toUpperCase();
     const homeRank = colorOf(m.piece) === 'w' ? 0 : 7;
     if ((up === 'N' || up === 'B') && m.y1 === homeRank && m.y2 !== homeRank) bits.push('develops a piece');
     if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) bits.push('takes a central square');
@@ -451,6 +463,17 @@ const Jev = (() => {
          'The game is even — develop carefully and do not give away material.'),
     ];
     if (inCheck(board, 'w')) lines.push('You are in check! Every candidate move escapes it — choose the one that keeps your position safest.');
+    const repN = repMap[boardKey()] || 1;
+    lines.push('Repetition: the current position has occurred ' + repN + ' time' + (repN === 1 ? '' : 's') + '. Three occurrences of ANY position ends the game as a draw (1/2-1/2).' +
+      (repN >= 2 ? ' CRITICAL: this position has occurred twice — repeating it once more DRAWS THE GAME. You must choose a move that changes the position.' : ' Keep making progress; do not shuffle pieces back and forth.'));
+    if (moveList.length) {
+      const recent = moveList.slice(-12);
+      const parts = [];
+      for (let i = 0; i < recent.length; i += 2)
+        parts.push((Math.floor(moveList.length / 2) - Math.floor(recent.length / 2) + Math.floor(i / 2) + 1) + '. ' + recent[i] + ' ' + (recent[i + 1] || ''));
+      lines.push('Recent moves (White first in each pair)' + (moveList.length > 12 ? ', last 12' : '') + ': ' + parts.join(', ') + '. Do not move a piece back to a square it just came from unless it is tactically necessary.');
+    }
+    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Priorities in strict order: 1) CHECKMATE, 2) escaping check (all listed moves escape it — pick the safest), 3) moves marked WINS MATERIAL, 4) rescuing your attacked pieces, 5) developing knights and bishops and castling your king to safety. NEVER choose a move marked LOSES MATERIAL unless it checkmates or saves more material. NEVER choose a move that draws by repetition while you can still play on. Material wins chess games — every undefended piece is a gift to the opponent.');
     if (inDanger.length) {
       lines.push('Your pieces in danger:');
       for (const t of inDanger.slice(0, 6)) lines.push('  ' + t);
@@ -461,7 +484,6 @@ const Jev = (() => {
       for (const t of freeGrabs.slice(0, 6)) lines.push('  ' + t);
       if (freeGrabs.length > 6) lines.push('  (and ' + (freeGrabs.length - 6) + ' more)');
     }
-    lines.push('There are ' + moves.length + ' candidate moves, listed in the criteria. Choose the strongest move for White. Prioritise, in order: checkmate, escaping check, capturing free or higher-value pieces, rescuing your attacked pieces, and developing knights and bishops. Avoid moves marked as leaving your pieces undefended. Material wins chess games — every undefended piece is a gift to the opponent. Develop quickly, castle early, and keep your pieces defended.');
     return lines.join('\n');
   }
 
@@ -475,7 +497,7 @@ const Jev = (() => {
       questions: {
         move: {
           type: 'choice',
-          instructions: 'Which move should White play next? Prioritise checkmate, escaping check, and winning material; avoid leaving pieces undefended. Each option lists its tactical effects.',
+          instructions: 'Which move should White play next? In strict order: checkmate, escaping check, moves marked WINS MATERIAL, rescuing attacked pieces, developing and castling. NEVER pick a move marked LOSES MATERIAL, and NEVER pick a move that draws by repetition while the game can continue. Each option lists its tactical effects.',
           criteria,
         },
       },
@@ -517,6 +539,11 @@ const Jev = (() => {
       if (inCheck(m.board, 'b')) s += 50;
       if (attackScan(board, m.x1, m.y1, 'b', false) < Infinity) s += 100;
       if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) s += 10;
+      // never let repetition-draw moves crowd out real moves
+      const rk = repMap[positionKey(m.board, 'b', castleRightsAfter(m),
+        m.double ? { x: m.x1, y: (m.y1 + m.y2) / 2 } : null)] || 0;
+      if (rk >= 2) s -= 100000;
+      else if (rk === 1) s -= 50;
       s -= (Math.abs(m.x2 - 3.5) + Math.abs(m.y2 - 3.5));
       s += Math.random() * 5; // slight randomness for variety
       return { m, s };
@@ -603,6 +630,7 @@ function applyMove(m, color) {
   halfmove = (m.piece.toUpperCase() === 'P' || m.captured) ? 0 : halfmove + 1;
   if (m.captured) captures[color] += m.captured;
   lastUci = moveLabel(m);
+  moveList.push(lastUci);
   if (color === 'w') jevLastChoice = moveLabel(m);
   turn = opp(color);
   sel = null;
