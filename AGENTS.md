@@ -9,9 +9,12 @@ whose White pieces are played by the TypeSafe "System One" decision
 model (Jev) when an API key is available — falling back to a local
 greedy heuristic when no key is set. A local greedy heuristic drives
 Black in autoplay mode. `server.js` is a zero-dependency Node proxy that
-makes Jev work locally. See DESIGN.md for architecture and README.md
-for usage. Same pattern as the Fight and Go repos in the Arcade
-collection.
+makes Jev work locally; started with `MISTRAL_MODEL` plus
+`MISTRAL_API_KEY`, it instead answers `POST /jev` itself by adapting
+each decision request to a Mistral chat completion (chat-adapter
+policy, Le Chonk = `mistral-large-4`). See DESIGN.md for architecture
+and README.md for usage. Same pattern as the Fight and Go repos in the
+Arcade collection.
 
 ## Gotchas
 
@@ -123,8 +126,27 @@ repo's AGENTS.md — the pattern is identical). Known traps:
 - White is Jev when an API key is available (browser key or server
   key). Without a key, White falls back to the local heuristic — the
   game keeps playing. There is no fallback on low confidence or
-  errors: `whiteMove` retries up to 3 times (10s timeout per attempt);
-  if all retries fail it shows an error message and plays no move.
+  errors: `whiteMove` retries up to 3 times (10s timeout per attempt,
+  120s when the backend is Mistral); if all retries fail it shows an
+  error message and plays no move.
+- Backend precedence: a Mistral chat backend (`MISTRAL_MODEL` +
+  `MISTRAL_API_KEY` on the server) takes precedence over Jev while
+  set — `POST /jev` goes to `api.mistral.ai/v1/chat/completions` via
+  the server's adapter, and a browser key does not override it.
+  `/jevstatus` reports `backend` (`mistral:<model>` or `typesafe`) and
+  `mode` (`chat` or `typesafe`) alongside `serverKey`. The browser
+  reads `backend` for the timeout, the HUD (`WHITE: MISTRAL <model>`),
+  and `labels()` (`Jev.displayName()`), and its error hint points at
+  the server's Mistral env vars instead of the J prompt. The adapter
+  includes every choice criterion description in the prompt (they are
+  the coaching) and returns synthetic peaked probabilities (0.5 pick /
+  shared rest, 0.9 confidence) — do not compare chat-adapter games
+  with the Jev benchmarks. Le Chonk is a hybrid reasoning model:
+  `message.content` is an ARRAY of parts (`thinking` + `text`) —
+  `mistralContentJson` extracts the text parts, and also accepts a
+  string or parsed-object content. Measured: ~60–120s per move, so the
+  local bench harness's 90s per-move deadline stalls Chonk games —
+  verify this backend with a single-move replay, not a full bench run.
 - There is **no pass option** in the Jev criteria — chess has no pass.
   Jev must pick one of the listed moves.
 - `filterMoves` reduces >30 legal moves to 30 candidates before

@@ -44,6 +44,7 @@
   you vs <b>local AI</b> (no key needed) ·
   <b>local AI vs Jev</b> (autoplay with key) ·
   <b>local AI vs local AI</b> (autoplay without key)<br>
+  Server: set <code>MISTRAL_MODEL</code> (e.g. mistral-large-4, Le Chonk) with <code>MISTRAL_API_KEY</code> to have a Mistral chat model play White instead of Jev<br>
   Keys: <b>0</b> toggle autoplay · <b>J</b> enter API key (Jev needs it) · <b>L</b> Jev log ·
   or use the buttons above ·
   <a href="https://en.wikipedia.org/wiki/Chess" target="_blank" rel="noopener">Chess on Wikipedia</a>
@@ -334,6 +335,11 @@ function newGame() {
 // by the Jev decision model. Jev always plays — no fallback to the local
 // heuristic. On error or timeout, the game retries and waits. The only
 // fallback is when no key is set at all: the local heuristic plays White.
+// When the server is started with MISTRAL_MODEL set (plus MISTRAL_API_KEY),
+// an opt-in Mistral chat model (for example mistral-large-4, Le Chonk) plays
+// White instead: the server adapts each decision request to a chat
+// completion with structured outputs. It takes precedence over Jev, and a
+// browser key does not override it.
 const Jev = (() => {
   // On localhost (served by server.js), use the proxy. Elsewhere
   // (Pages, file://) go direct to the API — the browser key provides
@@ -348,11 +354,12 @@ const Jev = (() => {
   let apiKey = '';
   try { apiKey = localStorage.getItem('typesafe_api_key') || ''; } catch (e) {}
   let serverKey = false;
-  // Resolves once we know whether the server has a key. The first move
-  // of the game is White's (Jev's), so the opening must wait for this.
+  let serverBackend = '';
+  // Resolves once we know whether the server has a backend. The first move
+  // of the game is White's, so the opening must wait for this.
   const ready = PROXY
     ? fetch('/jevstatus').then(r => r.json())
-        .then(d => { serverKey = !!d.serverKey; refreshHud(); })
+        .then(d => { serverKey = !!d.serverKey; serverBackend = d.backend || ''; refreshHud(); })
         .catch(() => {})
     : Promise.resolve();
 
@@ -589,7 +596,9 @@ const Jev = (() => {
       },
     };
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 10000);
+    // Chat-adapter backends (Mistral) take 10-30+ seconds per move.
+    const timeoutMs = serverBackend.startsWith('mistral:') ? 120000 : 10000;
+    const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
     let resp;
     try {
       resp = await fetch(ENDPOINT, {
@@ -669,6 +678,8 @@ const Jev = (() => {
     ready() { return ready; },
     isEnabled() { return !!(apiKey || serverKey); },
     isProxied() { return PROXY; },
+    getBackend() { return serverBackend; },
+    displayName() { return serverBackend.startsWith('mistral:') ? 'Mistral' : 'Jev'; },
     logEntry(entry) { addLog(entry); },
     getLog() { return log.slice(); },
     clearLog() { log.length = 0; },
@@ -708,15 +719,25 @@ function heuristicPick(moves, color) {
   return { move: best };
 }
 
-// Player labels. White is Jev when a key is available, otherwise the
+// Player labels. White is the selected decision model (Jev, or a Mistral
+// chat model via MISTRAL_MODEL) when a key is available, otherwise the
 // local heuristic. In autoplay the local heuristic drives Black.
 // When both sides are the heuristic (autoplay without a key), they are
 // numbered: Local AI 1 (Black) vs Local AI 2 (White).
 function labels() {
   const jev = Jev.isEnabled();
-  if (!autoplay) return { black: 'You', white: jev ? 'Jev' : 'Local AI' };
-  if (jev) return { black: 'Local AI', white: 'Jev' };
+  const decisionAi = Jev.displayName();
+  if (!autoplay) return { black: 'You', white: jev ? decisionAi : 'Local AI' };
+  if (jev) return { black: 'Local AI', white: decisionAi };
   return { black: 'Local AI 1', white: 'Local AI 2' };
+}
+
+// Where to look when the decision model fails for good: the backend decides
+// whether a browser API key (J) is relevant at all.
+function backendHint() {
+  return Jev.getBackend().startsWith('mistral:')
+    ? 'Check MISTRAL_MODEL and MISTRAL_API_KEY on the server.'
+    : 'Press J to check your API key';
 }
 
 function applyMove(m, color) {
@@ -801,25 +822,27 @@ function whiteMove(retries) {
     setStatus(labels().white + ' (White) is thinking...');
     Jev.chooseMove(moves).then(sel => {
       if (gameOver || turn !== 'w' || moveSeq !== seq) return;
+      const ai = labels().white;
       const m = moves.find(mv => moveLabel(mv) === sel);
       if (m) applyMove(m, 'w');
       else if (retries < 3) {
-        Jev.logEntry({ t: Date.now(), ok: false, reason: 'Jev chose illegal move ' + sel, choice: sel, confidence: null, state: null, probabilities: null });
-        setStatus('Jev returned an illegal move — retrying...');
+        Jev.logEntry({ t: Date.now(), ok: false, reason: ai + ' chose illegal move ' + sel, choice: sel, confidence: null, state: null, probabilities: null });
+        setStatus(ai + ' returned an illegal move — retrying...');
         setTimeout(() => whiteMove(retries + 1), 1000);
       } else {
-        Jev.logEntry({ t: Date.now(), ok: false, reason: 'Jev chose illegal move ' + sel + ' after ' + retries + ' retries', choice: sel, confidence: null, state: null, probabilities: null });
-        setStatus('Jev error — illegal move. Press J to check your API key' + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
+        Jev.logEntry({ t: Date.now(), ok: false, reason: ai + ' chose illegal move ' + sel + ' after ' + retries + ' retries', choice: sel, confidence: null, state: null, probabilities: null });
+        setStatus(ai + ' error — illegal move. ' + backendHint() + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
       }
     }).catch(err => {
       if (gameOver || turn !== 'w' || moveSeq !== seq) return;
       const reason = err && err.message ? err.message : String(err);
+      const ai = labels().white;
       Jev.logEntry({ t: Date.now(), ok: false, reason, choice: null, confidence: null, state: null, probabilities: null });
       if (retries < 3) {
-        setStatus('Jev error (' + reason + ') — retrying...');
+        setStatus(ai + ' error (' + reason + ') — retrying...');
         setTimeout(() => whiteMove(retries + 1), 1000);
       } else {
-        setStatus('Jev error after ' + (retries + 1) + ' attempts: ' + reason + '. Press J to check your API key' + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
+        setStatus(ai + ' error after ' + (retries + 1) + ' attempts: ' + reason + '. ' + backendHint() + (Jev.isProxied() ? '.' : ', or run node server.js locally.'));
       }
     });
   });
@@ -971,7 +994,10 @@ function toggleAutoplay() {
 
 function setHud(enabled) {
   const el = document.getElementById('jevhud');
-  el.textContent = 'WHITE: ' + labels().white.toUpperCase();
+  const backend = Jev.getBackend();
+  el.textContent = enabled && backend.startsWith('mistral:')
+    ? 'WHITE: MISTRAL ' + backend.slice(8)
+    : 'WHITE: ' + labels().white.toUpperCase();
   el.style.color = enabled ? '#4caf50' : '#e53935';
   updateScoreLine();
   updateMatchup();
@@ -996,7 +1022,7 @@ function renderJevLog() {
 }
 
 function promptForKey() {
-  const key = prompt('Enter TypeSafe API key (leave empty to use the local AI for White instead of Jev). Note: Jev only works when served by node server.js on localhost — on GitHub Pages or file:// the API blocks cross-origin calls even with a key.', Jev.getKey() || '');
+  const key = prompt('Enter TypeSafe API key (leave empty to use the local AI for White instead of Jev). Note: Jev only works when served by node server.js on localhost — on GitHub Pages or file:// the API blocks cross-origin calls even with a key. If the server was started with MISTRAL_MODEL set, that Mistral chat model plays White and keys here are ignored.', Jev.getKey() || '');
   if (key !== null) Jev.setKey(key.trim());
   refreshHud();
 }

@@ -12,6 +12,11 @@ no key is set). This follows the same architecture as
 [Fight](https://github.com/dagfinndybvig/Fight) in the same Arcade
 collection.
 
+As in the Go repo, the server also has an **opt-in Mistral chat
+backend**: set `MISTRAL_MODEL` (for example `mistral-large-4`, the Le
+Chonk preview) plus `MISTRAL_API_KEY` and a Mistral chat model plays
+White instead of Jev. See Running below.
+
 Jev is a general-purpose decision model, not a dedicated chess engine.
 It receives a text description of the board and chooses one move per
 turn — no search tree, no minimax, no evaluation function beyond what
@@ -127,6 +132,36 @@ takes precedence. The key is stored in `localStorage`.
 The port is **3001**, not 3000, because the Go repo's server
 (`Arcade/Go`) uses 3000 — both games can run at the same time.
 
+**With Mistral (chat adapter, Le Chonk):** set `MISTRAL_MODEL` (for
+example `mistral-large-4`, the Mistral Large 4 "Le Chonk" preview) plus
+`MISTRAL_API_KEY` in the environment and run the same server:
+
+```
+# Windows (cmd.exe)
+set "MISTRAL_MODEL=mistral-large-4" && set "MISTRAL_API_KEY=yourkey" && node server.js
+
+# Windows (PowerShell)
+$env:MISTRAL_MODEL="mistral-large-4"; $env:MISTRAL_API_KEY="yourkey"; node server.js
+
+# macOS / Linux
+MISTRAL_MODEL=mistral-large-4 MISTRAL_API_KEY=yourkey node server.js
+```
+
+The server converts each decision request into one
+`api.mistral.ai/v1/chat/completions` request with structured outputs
+(a JSON schema constraining the reply to one of the listed move labels,
+with every option's tactical annotation included in the prompt), then
+reshapes the reply. So White is played by a general chat model, not a
+decision model. This is a chat-adapter policy, like the Go repo's:
+it is metered (cloud), needs no local model, takes precedence over
+Jev (a browser key does not override it), and its results are not
+comparable with the Jev benchmarks above — the synthetic peaked
+probabilities are not model confidences. Le Chonk is a hybrid
+reasoning model: measured on real positions it thinks for roughly
+60–120 seconds per move (the game's timeout is 120 seconds for this
+backend), so games are slow and each move costs more than a plain
+chat completion.
+
 **Environment variable:**
 
 ```
@@ -153,6 +188,8 @@ The HUD shows who is playing at all times:
 - The indicator in the bottom-right corner:
 
 - **green WHITE: JEV** — Jev is active and choosing White's moves
+- **green WHITE: MISTRAL <model>** — the opt-in Mistral chat backend
+  (`MISTRAL_MODEL`) is active and choosing White's moves
 - **red WHITE: LOCAL AI** — no API key set; the local heuristic is
   playing White. Press J to enter a key (Jev needs `node server.js` on
   localhost).
@@ -215,8 +252,10 @@ On each White turn:
    selects the 30 most relevant: captures, checks, moves of attacked
    pieces, and center/development moves. This focuses Jev on tactically
    meaningful options instead of 40+ generic repositioning choices.
-3. **Question** — a single `Choice` question is POSTed to the TypeSafe
-   System One API (model `jev-latest`) through the local proxy: one
+3. **Question** — a single `Choice` question is POSTed through the local
+   proxy to the TypeSafe System One API (model `jev-latest`) — or, when
+   the server runs with `MISTRAL_MODEL`, adapted to one Mistral chat
+   completion with structured outputs: one
    option per candidate move (labelled `e2e4`-style), each annotated
    with a quantified exchange verdict (WINS MATERIAL / even trade /
    BAD MOVE — loses N points), checkmate and check flags, defender
@@ -228,10 +267,11 @@ On each White turn:
    generation — one typed round trip per turn.
 5. **Pick** — the game plays the highest-probability legal option from
    the distribution: Jev's best move, with no randomness.
-6. **Retry** — on timeout (10s) or error, the game retries up to 3
+6. **Retry** — on timeout (10s; 120s for the Mistral chat backend) or
+   error, the game retries up to 3
    times before showing an error message. There is no fallback on low
-   confidence or errors — Jev always plays its best move. The only
-   fallback is when no API key is set: White is played by the local
+   confidence or errors — the model always plays its best move. The only
+   fallback is when no key is set: White is played by the local
    heuristic instead.
 
 ```

@@ -261,6 +261,27 @@ chess, the opening move must wait until `/jevstatus` has resolved (on
 localhost) so the game knows whether a server key exists before
 choosing between Jev and the heuristic.
 
+### Mistral chat backend (opt-in, Le Chonk)
+
+When the server is started with `MISTRAL_MODEL` set (for example
+`mistral-large-4`, the Mistral Large 4 "Le Chonk" preview) plus
+`MISTRAL_API_KEY`, it takes precedence over Jev: `POST /jev` is
+answered by the server itself instead of the TypeSafe proxy. The
+adapter, mirroring the Go repo's, converts the single `Choice` question
+into one `api.mistral.ai/v1/chat/completions` request with structured
+outputs — a strict JSON schema with one required string constrained to
+the legal move labels — and reshapes the parsed reply into the decision
+response. Because chess's move annotations are load-bearing (they carry
+the entire coaching: exchange verdicts, BAD MOVE flags, repetition
+warnings), the adapter includes every option's description in the
+prompt, not just the labels. The reply's choice is returned with
+synthetic peaked probabilities (0.5 for the pick, the rest shared) and
+a fixed 0.9 confidence, so the browser's argmax plays the model's pick
+deterministically. Upstream status codes are forwarded, the browser uses
+a 120-second timeout for this backend, and a browser key does not
+override it. This is a chat-adapter policy: it is metered, and its
+results are not comparable with the Jev measurements above.
+
 ### Local heuristic
 
 `heuristicPick(moves, color)` scores each legal move: capture value

@@ -38,6 +38,15 @@ iteration 4).
 
 ## Next steps
 
+- [ ] Port the `mistralContentJson` fix to the Go repo's server.js: its
+      Mistral adapter has the identical bug — it `JSON.parse`s
+      `message.content`, but `mistral-large-4` (Le Chonk, a hybrid
+      reasoning model) returns an array of parts (`thinking` + `text`),
+      so every real reply fails with "Mistral returned invalid JSON"
+      (502). The Chess fix extracts the `text` parts and also accepts a
+      parsed-object or string content; see AGENTS.md's Jev integration
+      invariants here.
+
 - [ ] Conversion: Jev drew by repetition while up 10-6 (batch 2, game
       1) — coach it to keep making progress instead of shuffling when
       ahead
