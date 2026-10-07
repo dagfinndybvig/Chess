@@ -1,15 +1,20 @@
 # Design
 
-Detailed design notes for *Chess Harness*, an 8x8 chess game whose White
-pieces are played by [Jev](https://www.typesafe.ai), TypeSafe AI's
-"System One" decision model.
+Detailed design notes for *Chess Harness*, an 8x8 chess game built as a
+general harness for testing AI models at chess. White has been played
+by two backends: [Jev](https://www.typesafe.ai), TypeSafe AI's
+"System One" decision model, and Mistral's Le Chonk chat model through
+the server's chat adapter.
 
 ## Overview
 
-The player is Black; the machine is White. White is driven by Jev when
-an API key is available, with a local greedy heuristic as fallback when
-no key is set. The heuristic also drives Black in autoplay mode, so you
-can watch Jev's decisions against a greedy material baseline. The local
+The player is Black; the machine is White. White is driven by whichever
+backend the server is configured with: Jev when a TypeSafe API key is
+available, a Mistral chat model (Le Chonk) when the server runs with
+`MISTRAL_MODEL` set (it takes precedence over Jev while set), and a
+local greedy heuristic as fallback when no backend is configured at
+all. The heuristic also drives Black in autoplay mode, so you
+can watch a model's decisions against a greedy material baseline. The local
 heuristic is deliberately kept simple — one-ply capture counting, no
 search, no positional evaluation — as a baseline for comparison.
 
@@ -20,9 +25,9 @@ collection — a one-file game whose AI opponent is driven by Jev through
 a local CORS proxy. The Jev integration pattern (state text, `Choice`
 question, argmax move selection, retry-on-error) originates there; this
 repo adapts it to chess. Unlike the Go game, chess has no pass, so there
-is no pass criterion — Jev must always choose one of the listed moves.
-And because White moves first in chess, the machine (Jev or the
-heuristic) opens every game.
+is no pass criterion — the model must always choose one of the listed
+moves. And because White moves first in chess, the machine (the
+configured model or the heuristic) opens every game.
 
 ## Why Jev is weak at chess
 
@@ -324,8 +329,9 @@ Mistral backend is active.
 
 `heuristicPick(moves, color)` scores each legal move: capture value
 ×100, minus the opponent's best capture in reply ×80 (a 1-ply
-don't-hang-material lookahead), +30 for check, ±100000 for
-checkmate/stalemate, a mild center bias, and random tie-breaking. It
+don't-hang-material lookahead), +30 for check, +100000 for checkmate
+and -10000 for stalemate (nearly as bad as losing), a mild center bias,
+and random tie-breaking. It
 cannot pass (there is no pass in chess); with no good moves it still
 plays the least-bad one. Three heuristic-vs-heuristic headless games
 all ended in checkmate within 72 plies.

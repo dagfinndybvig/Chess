@@ -25,8 +25,9 @@ queen, two rooks, two bishops, two knights, and eight pawns.
   an enemy pawn as if it had moved only one square, but only
   immediately on the next move.
 - **Promotion** — a pawn reaching the far rank becomes a queen, rook,
-  bishop, or knight (this game always promotes to queen — the common
-  case).
+  bishop, or knight (in this game the AI models see all four choices and
+  are coached to prefer the queen; a human click-promotion plays a
+  queen — the common case).
 - **Draws** — the fifty-move rule (no capture or pawn move for 100
   half-moves), threefold repetition of the same position, insufficient
   mating material, stalemate, or agreement.
