@@ -21,10 +21,38 @@
   #jevhud { position: fixed; right: 16px; bottom: 12px; font-size: 13px; letter-spacing: 1px; font-family: monospace; }
   #autohud { display: none; position: fixed; left: 16px; bottom: 12px; color: #ffd54f; font-size: 13px; font-family: monospace; }
   #jevlog { display: none; position: fixed; left: 16px; bottom: 40px; background: rgba(0,0,0,.85); color: #cfc; font: 12px monospace; padding: 10px; border-radius: 6px; max-width: 460px; max-height: 40vh; overflow-y: auto; white-space: pre-wrap; }
+  /* Le Chonk (Mistral Large 4) — the banner and thinking panel use the
+     release art's palette: dark blue with a faint grid, orange-to-yellow
+     voxel glow, white highlights. */
+  #chonkhead { display: none; align-items: center; gap: 16px; margin: 8px 0 10px; padding: 10px 18px; border-radius: 10px;
+    background-color: #1e1e3f;
+    background-image: linear-gradient(rgba(255,165,0,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,165,0,.07) 1px, transparent 1px);
+    background-size: 22px 22px;
+    border: 1px solid #ff8c00; box-shadow: 0 0 18px rgba(255,140,0,.35); max-width: 560px; }
+  #chonkhead img { width: 96px; border-radius: 6px; display: block; }
+  #chonkhead .chonktitle { font-size: 30px; font-weight: bold; letter-spacing: 3px; line-height: 1;
+    background: linear-gradient(180deg, #ffff66 0%, #ffa500 55%, #ff6600 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 6px rgba(255,165,0,.55)); }
+  #chonkhead .chonksub { font-size: 13px; color: #ffe9b0; margin-top: 4px; }
+  #thinkwrap { display: none; margin-top: 12px; max-width: 560px; border: 1px solid #ff8c00; border-radius: 8px; overflow: hidden; text-align: left;
+    background-color: #14142b;
+    background-image: linear-gradient(rgba(255,165,0,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,165,0,.04) 1px, transparent 1px);
+    background-size: 22px 22px; box-shadow: 0 0 14px rgba(255,140,0,.2); }
+  #thinkwrap .thinkhead { padding: 7px 12px; font: bold 13px monospace; letter-spacing: 1px; color: #ffa500; background: rgba(30,30,63,.9); border-bottom: 1px solid rgba(255,140,0,.35); }
+  #thinkwrap .thinkhead span { color: #ffe9b0; font-weight: normal; }
+  #thinkwrap #think { padding: 10px 14px; max-height: 260px; overflow-y: auto; font: 13px/1.5 Georgia, serif; color: #ddd; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <h1>Jev Chess</h1>
+<div id="chonkhead">
+  <img src="le-chonk.webp" alt="Le Chonk — Mistral Large 4 voxel cat">
+  <div>
+    <div class="chonktitle">LE CHONK</div>
+    <div class="chonksub">Mistral Large 4 &mdash; the fat cat plays White, out loud</div>
+  </div>
+</div>
 <div id="matchup"></div>
 <div id="status">White opens the game.</div>
 <div id="boardwrap">
@@ -39,6 +67,10 @@
   <button id="logBtn">Jev log (L)</button>
 </div>
 <div id="score"></div>
+<div id="thinkwrap">
+  <div class="thinkhead">LE CHONK THINKING <span id="thinkmove"></span></div>
+  <div id="think"></div>
+</div>
 <div id="modes">
   <b>Player combinations</b> — you (Black) vs <b>Jev</b> (needs <code>node server.js</code> + API key) ·
   you vs <b>local AI</b> (no key needed) ·
@@ -619,7 +651,7 @@ const Jev = (() => {
     const data = await resp.json();
     const ans = data.answers && data.answers.move;
     if (!ans || !ans.choice) throw new Error('no choice in response');
-    return { choice: ans.choice, confidence: ans.confidence || 0, probabilities: ans.probabilities || null, state: stateStr };
+    return { choice: ans.choice, confidence: ans.confidence || 0, probabilities: ans.probabilities || null, state: stateStr, thinking: ans.thinking || null };
   }
 
   // Filter legal moves to the most relevant ones so Jev can focus.
@@ -669,7 +701,7 @@ const Jev = (() => {
       const entries = Object.entries(res.probabilities).filter(([k]) => legal.has(k));
       if (entries.length) picked = entries.reduce((a, b) => (b[1] > a[1] ? b : a))[0];
     }
-    addLog({ t: Date.now(), ok: true, choice: picked, jevChoice: res.choice, confidence: res.confidence, state: res.state, probabilities: res.probabilities });
+    addLog({ t: Date.now(), ok: true, choice: picked, jevChoice: res.choice, confidence: res.confidence, state: res.state, probabilities: res.probabilities, thinking: res.thinking });
     return picked;
   }
 
@@ -824,7 +856,7 @@ function whiteMove(retries) {
       if (gameOver || turn !== 'w' || moveSeq !== seq) return;
       const ai = labels().white;
       const m = moves.find(mv => moveLabel(mv) === sel);
-      if (m) applyMove(m, 'w');
+      if (m) { applyMove(m, 'w'); showThinking(); }
       else if (retries < 3) {
         Jev.logEntry({ t: Date.now(), ok: false, reason: ai + ' chose illegal move ' + sel, choice: sel, confidence: null, state: null, probabilities: null });
         setStatus(ai + ' returned an illegal move — retrying...');
@@ -1008,7 +1040,32 @@ function updateMatchup() {
   document.getElementById('matchup').textContent =
     '\u25CF ' + L.black + ' (Black)  vs  \u25CB ' + L.white + ' (White)';
 }
-function refreshHud() { setHud(Jev.isEnabled()); }
+function refreshHud() { setHud(Jev.isEnabled()); updateChonkUi(); }
+
+// Chonk UI: show the thinking text of the most recent decision (the
+// chat-adapter backend passes it through; decision-model replies have
+// none, so the panel only ever updates on the Mistral backend).
+function chonkActive() {
+  return Jev.isEnabled() && Jev.getBackend().startsWith('mistral:');
+}
+
+function updateChonkUi() {
+  const on = chonkActive();
+  document.getElementById('chonkhead').style.display = on ? 'flex' : 'none';
+  const wrap = document.getElementById('thinkwrap');
+  wrap.style.display = on ? 'block' : 'none';
+  if (on && !document.getElementById('think').textContent)
+    document.getElementById('think').textContent = 'Le Chonk is warming up — its thinking will appear here after its first move.';
+}
+
+function showThinking() {
+  if (!chonkActive()) return;
+  const log = Jev.getLog();
+  const last = log[log.length - 1];
+  if (!last || !last.ok || !last.thinking) return;
+  document.getElementById('thinkmove').textContent = '— move ' + last.choice;
+  document.getElementById('think').textContent = last.thinking;
+}
 
 function renderJevLog() {
   const panel = document.getElementById('jevlog');

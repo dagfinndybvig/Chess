@@ -147,6 +147,15 @@ repo's AGENTS.md — the pattern is identical). Known traps:
   string or parsed-object content. Measured: ~60–120s per move, so the
   local bench harness's 90s per-move deadline stalls Chonk games —
   verify this backend with a single-move replay, not a full bench run.
+- The Chonk UI: the server passes the reasoning trace through as
+  `answers.move.thinking`; `query` returns it, `chooseMove` logs it,
+  and `whiteMove` calls `showThinking()` after a successful move, which
+  renders the LAST ok log entry's thinking into the `#think` panel
+  (with the move label in `#thinkmove`). Banner (`#chonkhead`,
+  `le-chonk.webp` art) and panel visibility are driven by
+  `updateChonkUi()` via `refreshHud()` — visible only when
+  `chonkActive()` (enabled && mistral backend). server.js serves
+  `.webp`; `le-chonk.webp` is a committed asset the page references.
 - There is **no pass option** in the Jev criteria — chess has no pass.
   Jev must pick one of the listed moves.
 - `filterMoves` reduces >30 legal moves to 30 candidates before

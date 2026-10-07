@@ -162,6 +162,13 @@ reasoning model: measured on real positions it thinks for roughly
 backend), so games are slow and each move costs more than a plain
 chat completion.
 
+When this backend is active, the page gets a **Le Chonk** skin: a
+banner with the Mistral Large 4 release art (the voxel cat,
+`le-chonk.webp`) in the release's dark-blue/orange palette, and a
+**thinking panel** that shows the model's actual reasoning trace for
+its most recent move — the server passes the hybrid model's
+`thinking` content parts through with each answer.
+
 **Environment variable:**
 
 ```
@@ -305,6 +312,7 @@ runs.
 ```
 jev-chess.html  — entire game (single file, no dependencies)
 server.js       — local Node.js server + Jev CORS proxy (run: node server.js)
+le-chonk.webp   — Mistral Large 4 release art, shown by the Le Chonk skin
 index.html      — redirect to jev-chess.html, so GitHub Pages serves the game
 ```
 

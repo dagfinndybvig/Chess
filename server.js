@@ -34,6 +34,7 @@ const MIME = {
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".ico": "image/x-icon",
+  ".webp": "image/webp",
 };
 
 const ROOT = __dirname;
@@ -154,9 +155,28 @@ function mistralContentJson(content) {
   }
 }
 
+// The reasoning trace from a hybrid model's "thinking" content parts
+// (each is {type:"thinking", thinking:[{type:"text",text:"..."}]}),
+// passed through to the browser for display. Empty when the reply has
+// no thinking parts (plain chat models).
+function mistralThinkingText(content) {
+  if (!Array.isArray(content)) return "";
+  const parts = [];
+  for (const part of content) {
+    if (!part || part.type !== "thinking") continue;
+    if (Array.isArray(part.thinking)) {
+      for (const t of part.thinking) if (t && typeof t.text === "string") parts.push(t.text);
+    } else if (typeof part.thinking === "string") {
+      parts.push(part.thinking);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
 function adaptMistralReply(jevRequest, reply) {
   const message = reply && reply.choices && reply.choices[0] && reply.choices[0].message;
-  const values = mistralContentJson(message && message.content);
+  const content = message && message.content;
+  const values = mistralContentJson(content);
   const answers = {};
   for (const [name, question] of Object.entries(jevRequest.questions)) {
     const labels = Object.keys(question.criteria);
@@ -167,7 +187,7 @@ function adaptMistralReply(jevRequest, reply) {
     probabilities[value] = rest.length ? 0.5 : 1;
     const share = rest.length ? 0.5 / rest.length : 0;
     for (const label of rest) probabilities[label] = share;
-    answers[name] = { choice: value, confidence: 0.9, probabilities };
+    answers[name] = { choice: value, confidence: 0.9, probabilities, thinking: mistralThinkingText(content) };
   }
   const usage = reply.usage || {};
   return {

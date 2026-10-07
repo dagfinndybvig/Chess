@@ -282,6 +282,15 @@ a 120-second timeout for this backend, and a browser key does not
 override it. This is a chat-adapter policy: it is metered, and its
 results are not comparable with the Jev measurements above.
 
+Because Le Chonk is a hybrid reasoning model, its reply carries a
+reasoning trace; the adapter extracts the `thinking` content parts
+(`mistralThinkingText`) and passes them through as
+`answers.move.thinking`. The browser displays the latest trace in the
+Le Chonk thinking panel after each of its moves, alongside a Le Chonk
+banner using the Mistral Large 4 release art (`le-chonk.webp`) and the
+release's dark-blue/orange palette; both are shown only while the
+Mistral backend is active.
+
 ### Local heuristic
 
 `heuristicPick(moves, color)` scores each legal move: capture value
