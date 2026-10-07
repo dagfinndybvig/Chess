@@ -1,6 +1,6 @@
 <img width="718" height="803" alt="chess" src="https://github.com/user-attachments/assets/ed71859c-26ab-46e2-9d1f-f0a24a2fb1e6" />
 
-# Jev Chess
+# Chess Harness
 
 A small chess game where the White pieces are played by
 [Jev](https://www.typesafe.ai), TypeSafe AI's "System One" decision

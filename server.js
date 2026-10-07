@@ -1,5 +1,5 @@
 "use strict";
-// Minimal local server for Jev Chess.
+// Minimal local server for Chess Harness.
 // Serves static files and proxies POST /jev -> TypeSafe System One API.
 // Usage:  node server.js   then open http://localhost:3001
 // Port 3001 because the Go repo's server (Arcade/Go) uses 3000 — both can
@@ -326,7 +326,7 @@ if (MISTRAL_MODEL && !MISTRAL_API_KEY) {
 }
 
 server.listen(PORT, () => {
-  console.log("Jev Chess");
+  console.log("Chess Harness");
   console.log("Open http://localhost:" + PORT);
   if (MISTRAL_MODEL) {
     console.log("AI backend: Mistral model " + MISTRAL_MODEL + " via https://" + MISTRAL_HOST + MISTRAL_PATH + " (chat adapter)");

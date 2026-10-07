@@ -1,6 +1,6 @@
 # Design
 
-Detailed design notes for *Jev Chess*, an 8x8 chess game whose White
+Detailed design notes for *Chess Harness*, an 8x8 chess game whose White
 pieces are played by [Jev](https://www.typesafe.ai), TypeSafe AI's
 "System One" decision model.
 
