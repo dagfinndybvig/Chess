@@ -31,7 +31,15 @@ const ROOT = __dirname;
 
 function serveStatic(req, res) {
   let url = req.url === "/" ? "/jev-chess.html" : req.url.split("?")[0];
-  const file = path.join(ROOT, path.normalize(url).replace(/^(\.\.[\/\\])+/, ""));
+  // Resolve against ROOT and refuse anything that escapes it — a leading
+  // "//" or ".." must never walk up the filesystem.
+  const rootDir = path.resolve(ROOT);
+  const file = path.resolve(rootDir, "." + url);
+  if (file !== rootDir && !file.startsWith(rootDir + path.sep)) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("403 Forbidden");
+    return;
+  }
   fs.readFile(file, (err, data) => {
     if (err) {
       res.writeHead(404, { "Content-Type": "text/plain" });

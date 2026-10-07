@@ -720,7 +720,8 @@ function labels() {
 }
 
 function applyMove(m, color) {
-  history.push({ board, turn, castleR: Object.assign({}, castleR), ep: epSq, halfmove, lastUci, repKey: null });
+  history.push({ board, turn, castleR: Object.assign({}, castleR), ep: epSq, halfmove, lastUci,
+    captures: { w: captures.w, b: captures.b }, moveListLen: moveList.length, repKey: null });
   board = m.board;
   updateCastleRights(castleR, m);
   epSq = m.double ? { x: m.x1, y: (m.y1 + m.y2) / 2 } : null;
@@ -855,6 +856,8 @@ function undo() {
   halfmove = h.halfmove;
   lastUci = h.lastUci;
   jevLastChoice = h.lastUci;
+  captures = { w: h.captures.w, b: h.captures.b };
+  moveList.length = h.moveListLen;
   sel = null;
   selMoves = [];
   moveSeq++; // invalidate any pending Jev decision
