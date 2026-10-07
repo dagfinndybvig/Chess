@@ -176,9 +176,19 @@ that backend.
   with the Jev benchmarks. Le Chonk is a hybrid reasoning model:
   `message.content` is an ARRAY of parts (`thinking` + `text`) —
   `mistralContentJson` extracts the text parts, and also accepts a
-  string or parsed-object content. Measured: ~60–120s per move, so the
-  local bench harness's 90s per-move deadline stalls Chonk games —
-  verify this backend with a single-move replay, not a full bench run.
+  string or parsed-object content. Measured: ~60–120s per move at full
+  thinking, so the local bench harness's 90s per-move deadline stalls
+  Chonk games — verify this backend with a single-move replay, not a
+  full bench run. The reasoning effort is RUNTIME server state
+  (`mistralReasoning`, default from `MISTRAL_REASONING` or "high"):
+  `/jevstatus` reports it as `reasoning`, `POST /jevreasoning {effort}`
+  sets it (high/none; low/medium pass through for other models), and
+  the browser's Chonk mode button toggles it via
+  `Jev.toggleReasoning()` with the label driven by
+  `updateChonkUi()` — placeholder panel text flips with the mode but
+  real thinking text is never overwritten. mistral-large-4 accepts
+  only `high` (long thinking, fills the panel) or `none` (~1s per
+  move, no reasoning trace).
 - The Chonk UI: the server passes the reasoning trace through as
   `answers.move.thinking`; `query` returns it, `chooseMove` logs it,
   and `whiteMove` calls `showThinking()` after a successful move, which

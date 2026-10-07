@@ -65,6 +65,7 @@
   <button id="autoBtn">Autoplay: off (0)</button>
   <button id="keyBtn">API key (J)</button>
   <button id="logBtn">Jev log (L)</button>
+  <button id="chonkBtn" style="display:none">Chonk: thinking</button>
 </div>
 <div id="score"></div>
 <div id="thinkwrap">
@@ -72,8 +73,7 @@
   <div id="think"></div>
 </div>
 <div id="modes">
-  <b>You (Black) vs White</b> — White is <b>Jev</b> (<code>node server.js</code> + API key),
-  <b>Le Chonk</b> (Mistral, set <code>MISTRAL_MODEL</code>), or the <b>local AI</b> (no key needed) ·
+  <b>You (Black) vs White AI</b> — the model playing White is named above ·
   <b>0</b> autoplay · <b>J</b> API key · <b>L</b> Jev log ·
   <a href="https://en.wikipedia.org/wiki/Chess" target="_blank" rel="noopener">Chess on Wikipedia</a>
 </div>
@@ -387,11 +387,12 @@ const Jev = (() => {
   try { apiKey = localStorage.getItem('typesafe_api_key') || ''; } catch (e) {}
   let serverKey = false;
   let serverBackend = '';
+  let serverReasoning = '';
   // Resolves once we know whether the server has a backend. The first move
   // of the game is White's, so the opening must wait for this.
   const ready = PROXY
     ? fetch('/jevstatus').then(r => r.json())
-        .then(d => { serverKey = !!d.serverKey; serverBackend = d.backend || ''; refreshHud(); })
+        .then(d => { serverKey = !!d.serverKey; serverBackend = d.backend || ''; serverReasoning = d.reasoning || ''; refreshHud(); })
         .catch(() => {})
     : Promise.resolve();
 
@@ -746,6 +747,18 @@ const Jev = (() => {
     isEnabled() { return !!(apiKey || serverKey); },
     isProxied() { return PROXY; },
     getBackend() { return serverBackend; },
+    getReasoning() { return serverReasoning; },
+    async toggleReasoning() {
+      const effort = serverReasoning === 'none' ? 'high' : 'none';
+      const r = await fetch('/jevreasoning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ effort }),
+      });
+      const d = await r.json();
+      if (d && d.reasoning) serverReasoning = d.reasoning;
+      return serverReasoning;
+    },
     displayName() { return serverBackend.startsWith('mistral:') ? 'Mistral' : 'Jev'; },
     logEntry(entry) { addLog(entry); },
     getLog() { return log.slice(); },
@@ -1090,8 +1103,23 @@ function updateChonkUi() {
   document.getElementById('chonkhead').style.display = on ? 'flex' : 'none';
   const wrap = document.getElementById('thinkwrap');
   wrap.style.display = on ? 'block' : 'none';
-  if (on && !document.getElementById('think').textContent)
-    document.getElementById('think').textContent = 'Le Chonk is warming up — its thinking will appear here after its first move.';
+  const btn = document.getElementById('chonkBtn');
+  btn.style.display = on ? 'inline-block' : 'none';
+  if (on) {
+    const fast = Jev.getReasoning() === 'none';
+    btn.textContent = fast ? 'Chonk: fast' : 'Chonk: thinking';
+    btn.title = fast
+      ? 'Fast mode: no reasoning trace, about a second per move. Click to switch to full thinking (1-2 minutes per move, shown in the panel).'
+      : 'Full thinking: 1-2 minutes per move with the reasoning shown in the panel. Click to switch to fast mode (no thinking).';
+    // replace placeholder text when the mode flips; never overwrite real thinking
+    const panel = document.getElementById('think');
+    const isPlaceholder = !panel.textContent ||
+      panel.textContent.startsWith('Le Chonk is warming up') ||
+      panel.textContent.startsWith('Fast mode — Le Chonk');
+    if (isPlaceholder) panel.textContent = fast
+      ? 'Fast mode — Le Chonk plays without a reasoning trace.'
+      : 'Le Chonk is warming up — its thinking will appear here after its first move.';
+  }
 }
 
 function showThinking() {
@@ -1134,6 +1162,12 @@ document.addEventListener('keydown', e => {
 document.getElementById('autoBtn').addEventListener('click', toggleAutoplay);
 document.getElementById('keyBtn').addEventListener('click', promptForKey);
 document.getElementById('logBtn').addEventListener('click', toggleLog);
+document.getElementById('chonkBtn').addEventListener('click', () => {
+  if (!chonkActive()) return;
+  const btn = document.getElementById('chonkBtn');
+  btn.textContent = 'Chonk: switching...';
+  Jev.toggleReasoning().then(updateChonkUi).catch(updateChonkUi);
+});
 
 newGame();
 refreshHud();

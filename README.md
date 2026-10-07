@@ -172,11 +172,16 @@ decision model. This is a chat-adapter policy, like the Go repo's:
 it is metered (cloud), needs no local model, takes precedence over
 Jev (a browser key does not override it), and its results are not
 comparable with the Jev benchmarks above — the synthetic peaked
-probabilities are not model confidences. Le Chonk is a hybrid
-reasoning model: measured on real positions it thinks for roughly
-60–120 seconds per move (the game's timeout is 120 seconds for this
-backend), so games are slow and each move costs more than a plain
-chat completion.
+probabilities are not model confidences.
+
+Speed: Le Chonk reasons over every annotated option, so with full
+thinking a move takes roughly 60–120 seconds (the game's timeout is
+120 seconds for this backend). The **Chonk: fast / Chonk: thinking**
+button in the controls switches at runtime — fast mode
+(`MISTRAL_REASONING=none` at startup) skips the reasoning trace
+entirely and, measured, drops moves to about a second, at the cost of
+the thinking panel's content (and likely some play quality).
+`mistral-large-4` accepts only `high` or `none`.
 
 When this backend is active, the page gets a **Le Chonk** skin: a
 banner with the Mistral Large 4 release art (the voxel cat,

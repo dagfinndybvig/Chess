@@ -22,6 +22,13 @@ const ENV_KEY = process.env.TYPESAFE_API_KEY || "";
 // TypeSafe. Takes precedence over TypeSafe while set.
 const MISTRAL_MODEL = process.env.MISTRAL_MODEL || "";
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || "";
+// The hybrid model's reasoning effort: "high" (default — long thinking,
+// ~60-120s per move, fills the thinking panel) or "none" (no reasoning
+// trace, ~1s per move). Set at startup with MISTRAL_REASONING; toggled
+// at runtime by the browser's Chonk mode button (POST /jevreasoning).
+// mistral-large-4 accepts only high or none; low/medium pass through
+// for models that support them.
+let mistralReasoning = process.env.MISTRAL_REASONING || "high";
 const MISTRAL_HOST = "api.mistral.ai";
 const MISTRAL_PATH = "/v1/chat/completions";
 const MISTRAL_TIMEOUT = 120000;
@@ -104,7 +111,7 @@ function buildMistralRequest(jevRequest) {
     throw new Error("questions must be an object");
   }
   const { properties, required, prompt } = mistralSchema(questions);
-  return {
+  const request = {
     model: MISTRAL_MODEL,
     temperature: 0.2,
     messages: [
@@ -130,6 +137,8 @@ function buildMistralRequest(jevRequest) {
       },
     },
   };
+  if (mistralReasoning) request.reasoning_effort = mistralReasoning;
+  return request;
 }
 
 // Le Chonk (mistral-large-4) is a hybrid reasoning model: message.content
@@ -309,11 +318,34 @@ const server = http.createServer((req, res) => {
     if (MISTRAL_MODEL) return handleMistral(req, res);
     return proxyJev(req, res);
   }
+  if (req.method === "POST" && req.url === "/jevreasoning") {
+    if (!MISTRAL_MODEL) {
+      sendJson(res, 404, { error: "not_found", detail: "no Mistral backend configured" });
+      return;
+    }
+    const chunks = [];
+    req.on("data", c => chunks.push(c));
+    req.on("end", () => {
+      let body = null;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch (error) {}
+      const effort = body && body.effort;
+      if (!["high", "none", "low", "medium"].includes(effort)) {
+        sendJson(res, 400, { error: "bad_request", detail: "effort must be high or none (low/medium for models that support them)" });
+        return;
+      }
+      mistralReasoning = effort;
+      sendJson(res, 200, { reasoning: mistralReasoning });
+    });
+    return;
+  }
   if (req.method === "GET" && req.url === "/jevstatus") {
     sendJson(res, 200, {
       serverKey: !!(ENV_KEY || MISTRAL_MODEL),
       backend: MISTRAL_MODEL ? "mistral:" + MISTRAL_MODEL : "typesafe",
       mode: MISTRAL_MODEL ? "chat" : "typesafe",
+      reasoning: mistralReasoning,
     });
     return;
   }
@@ -330,6 +362,7 @@ server.listen(PORT, () => {
   console.log("Open http://localhost:" + PORT);
   if (MISTRAL_MODEL) {
     console.log("AI backend: Mistral model " + MISTRAL_MODEL + " via https://" + MISTRAL_HOST + MISTRAL_PATH + " (chat adapter)");
+    console.log("Reasoning effort: " + mistralReasoning + (mistralReasoning === "none" ? " (fast mode — no thinking)" : ""));
     if (ENV_KEY) console.log("(TYPESAFE_API_KEY is ignored while MISTRAL_MODEL is set)");
   } else {
     console.log("Jev proxy: POST /jev -> https://" + TS_HOST + TS_PATH);
