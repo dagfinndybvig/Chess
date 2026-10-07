@@ -2,35 +2,42 @@
 
 # Chess Harness
 
-A small chess game where the White pieces are played by
-[Jev](https://www.typesafe.ai), TypeSafe AI's "System One" decision
-model, when an API key is available. Without a key, White falls back to
-a built-in local heuristic AI. You play Black. In autoplay mode, the
-local heuristic drives Black against Jev's White (or against itself if
-no key is set). This follows the same architecture as
+A single-file chess game built as a **general-purpose harness for
+testing AI models at chess**. The White pieces are driven by whichever
+model backend the server is configured with — you plug a model in,
+play against it, or watch it benchmark itself in autoplay. You play
+Black.
+
+Two backends have been tried with it so far:
+
+| Backend | Kind | How it chooses a move |
+| --- | --- | --- |
+| [Jev](https://www.typesafe.ai) (TypeSafe "System One", `jev-latest`) | Decision model | A single typed `Choice` question over the annotated candidate moves; returns a choice, probabilities, and confidence |
+| Le Chonk ([Mistral Large 4](https://console.mistral.ai)) | Chat model, via the built-in chat adapter | Each decision question is adapted to one chat completion with structured outputs, constrained to the legal move labels; its reasoning trace is shown live in the thinking panel |
+| Local AI | Built-in greedy heuristic | Capture value, opponent-reply penalty, center bias — no search |
+
+The local heuristic is the constant of the harness: it plays Black in
+autoplay (the benchmark opponent), and it plays White whenever no
+backend is configured — the harness always works, with or without any
+API key. This follows the same architecture as
 [Go](https://github.com/dagfinndybvig/Go) and
 [Fight](https://github.com/dagfinndybvig/Fight) in the same Arcade
-collection.
+collection, both of which use the same pattern.
 
-As in the Go repo, the server also has an **opt-in Mistral chat
-backend**: set `MISTRAL_MODEL` (for example `mistral-large-4`, the Le
-Chonk preview) plus `MISTRAL_API_KEY` and a Mistral chat model plays
-White instead of Jev. See Running below.
+Why chess as a model test? The models being tested are general-purpose
+decision or chat models, not dedicated chess engines. The harness gives
+them a text description of the board and one move per turn — no search
+tree, no minimax, no evaluation function beyond what the prompt
+describes. It is one of the oldest dreams of AI ("the Turing test of
+game-playing"), and modern LLM-based models play chess roughly at
+weak-club level at best: they know how pieces move and spot simple
+tactics, but the harness's deliberately weak one-ply heuristic (capture
+value, opponent-reply capture penalty, center bias, no positional
+understanding) is a fair baseline — autoplay games between a backend
+and the heuristic are a genuine benchmark of whether the model can
+play goal-directed chess, not a strong chess exhibition.
 
-Jev is a general-purpose decision model, not a dedicated chess engine.
-It receives a text description of the board and chooses one move per
-turn — no search tree, no minimax, no evaluation function beyond what
-the prompt describes. It is one of the oldest dreams of AI ("the Turing
-test of game-playing"), and modern LLM-based decision models play chess
-roughly at weak-club level: they know how pieces move and spot simple
-tactics, but no general-purpose decision model can match even a one-ply
-greedy heuristic at consistent material play. The local heuristic here
-is also deliberately weak (capture value, opponent-reply capture
-penalty, center bias, no positional understanding), so the two are
-comparable — autoplay is a baseline AI benchmark, not a strong chess
-exhibition.
-
-### Measured results: reaching beginner level
+### Measured results: reaching beginner level (Jev)
 
 Jev started far below beginner level and was iterated to it. Each
 iteration was measured with headless autoplay games (Jev White vs the
@@ -74,26 +81,32 @@ convert (drew by repetition while up 10-6). The stalemate itself is
 gone; the remaining weaknesses are conversion and blunder avoidance
 (see TODO).
 
+**Le Chonk (Mistral Large 4)** has been tried through the chat adapter
+but not put through the same 12-game measurement batch: full reasoning
+takes 1–3 minutes per move, which exceeds the local bench harness's 90s
+per-move deadline, so this backend is verified with single-move
+replays rather than a benchmark run. Its synthetic peaked probabilities
+are not model confidences, so its games are not comparable with the
+Jev benchmarks above even when it does play them.
+
 The game is also served from GitHub Pages:
-**https://dagfinndybvig.github.io/Chess/** — Jev needs the local proxy
-server and an API key (see Running below). On Pages (or when opening
-`jev-chess.html` directly without a server) the game tries the TypeSafe
-API directly with your browser key, but the API sends no CORS headers,
-so the browser blocks the call. To play against Jev, run `node
-server.js` locally. Without a key (on Pages, file://, or localhost
-without a key), White is played by the local heuristic AI instead —
-the game still works, just without Jev.
+**https://dagfinndybvig.github.io/Chess/** — no backend can run on
+Pages (the APIs send no CORS headers, so the browser blocks direct
+calls even with a browser key). On Pages (or when opening
+`jev-chess.html` directly without a server) White is played by the
+local heuristic AI — the harness still works, just without a model.
+To play against a model, run `node server.js` locally.
 
 ## Rules
 
 Full chess rules on an 8x8 board: all piece moves, castling, en passant,
-pawn promotion — Jev and the local AI consider all four promotion
-pieces and are coached to prefer the queen (your own click-promotion
-plays a queen),
-check, checkmate, and stalemate. Draws are detected for the fifty-move
-rule, threefold repetition, and insufficient material (K vs K, K+minor
-vs K). There is no pass in chess — White opens every game, so the
-machine (Jev or the local AI) always plays the first move.
+pawn promotion — the models and the local AI consider all four
+promotion pieces and are coached to prefer the queen (your own
+click-promotion plays a queen), check, checkmate, and stalemate. Draws
+are detected for the fifty-move rule, threefold repetition, and
+insufficient material (K vs K, K+minor vs K). There is no pass in
+chess — White opens every game, so the machine (the configured model
+or the local AI) always plays the first move.
 
 ## Controls
 
@@ -102,56 +115,34 @@ machine (Jev or the local AI) always plays the first move.
 | Move a piece | Click the piece, then click its destination (legal targets are dotted) |
 | Undo | Undo button (returns to your turn, taking back the last full move pair) |
 | New game | New game button |
-| Set Jev API key | `J` |
+| Set a TypeSafe API key (Jev) | `J` |
 | Toggle log panel | `L` |
-| Toggle autoplay (Jev vs local AI) | `0` |
+| Toggle autoplay (model vs local AI) | `0` |
+| Toggle the model's reasoning (Le Chonk backend) | **Reasoning: on/off** button |
 
 All of these are also visible as buttons above the board: **Autoplay:
-off/on (0)**, **API key (J)**, and **Log (L)**.
+off/on (0)**, **API key (J)**, **Log (L)**, and — when the Mistral
+backend is active — the colour-coded **Reasoning** button.
 
 ## Running
 
-**Quick start with Le Chonk (Mistral Large 4):** install
-[Node.js 18 or newer](https://nodejs.org), get an API key from
-[Mistral](https://console.mistral.ai), then:
+The harness is a zero-dependency Node.js server. Install
+[Node.js 18 or newer](https://nodejs.org), clone, and start it with
+whichever backend you want to test (or with no backend at all):
 
 ```
 git clone https://github.com/dagfinndybvig/Chess
 cd Chess
-MISTRAL_MODEL=mistral-large-4 MISTRAL_API_KEY=yourkey node server.js
-```
-
-Open **http://localhost:3001** — the Le Chonk banner appears, and the
-fat cat plays White (1–3 minutes per move at full reasoning, with its
-reasoning shown
-in the thinking panel). On Windows, see the env-var syntax below.
-
-**Without a server (local AI plays White):** open `jev-chess.html`
-directly in a browser. No build step, no external assets. Without an
-API key, White is played by the local heuristic AI — the game works,
-just without Jev.
-
-**With Jev AI:** the TypeSafe API does not send CORS headers, so
-browser-to-API calls are blocked. A zero-dependency Node.js proxy server
-is included. Run it locally:
-
-```
 node server.js
 ```
 
-Then open **http://localhost:3001** in your browser. The server picks
-up `TYPESAFE_API_KEY` from its environment automatically (check
-`GET /jevstatus`); you can also press **J** in-game and paste a key from
-[console.typesafe.ai](https://console.typesafe.ai). A browser key always
-takes precedence. The key is stored in `localStorage`.
+Open **http://localhost:3001** in your browser.
 
-The port is **3001**, not 3000, because the Go repo's server
-(`Arcade/Go`) uses 3000 — both games can run at the same time.
-
-**With Mistral (chat adapter, Le Chonk):** set `MISTRAL_MODEL` (for
-example `mistral-large-4`, the Mistral Large 4 "Le Chonk" preview) plus
-`MISTRAL_API_KEY` (from [console.mistral.ai](https://console.mistral.ai))
-in the environment and run the same server:
+**Backend 1: Mistral Le Chonk (chat adapter).** Set `MISTRAL_MODEL`
+(for example `mistral-large-4`, the Mistral Large 4 "Le Chonk"
+preview) plus `MISTRAL_API_KEY` (from
+[console.mistral.ai](https://console.mistral.ai)) in the environment
+and run the same server:
 
 ```
 # Windows (cmd.exe)
@@ -170,19 +161,18 @@ The server converts each decision request into one
 with every option's tactical annotation included in the prompt), then
 reshapes the reply. So White is played by a general chat model, not a
 decision model. This is a chat-adapter policy, like the Go repo's:
-it is metered (cloud), needs no local model, takes precedence over
-Jev (a browser key does not override it), and its results are not
-comparable with the Jev benchmarks above — the synthetic peaked
-probabilities are not model confidences.
+it is metered (cloud), needs no local model, takes precedence over the
+Jev backend (a browser key does not override it), and its synthetic
+peaked probabilities are not model confidences — its games are not
+comparable with the Jev benchmarks above.
 
 Speed: Le Chonk reasons over every annotated option, so with full
 thinking a move takes 1–3 minutes on dense positions (the game's
 timeout is 300 seconds for this backend). The **Reasoning: on /
-Reasoning: off**
-button in the controls (green / red) switches at runtime — off skips
-the reasoning trace entirely and, measured, drops moves to about a
-second, at the cost of the thinking panel's content (and likely some
-play quality). The default is full reasoning;
+Reasoning: off** button in the controls (green / red) switches at
+runtime — off skips the reasoning trace entirely and, measured, drops
+moves to about a second, at the cost of the thinking panel's content
+(and likely some play quality). The default is full reasoning;
 `MISTRAL_REASONING=none` at server start gives fast sessions.
 `mistral-large-4` accepts only `high` or `none`.
 
@@ -193,7 +183,13 @@ banner with the Mistral Large 4 release art (the voxel cat,
 its most recent move — the server passes the hybrid model's
 `thinking` content parts through with each answer.
 
-**Environment variable:**
+**Backend 2: Jev (TypeSafe System One).** The TypeSafe API does not
+send CORS headers, so browser-to-API calls are blocked; the included
+proxy handles that. Run the server with `TYPESAFE_API_KEY` in its
+environment (check `GET /jevstatus`), or press **J** in-game and paste
+a key from [console.typesafe.ai](https://console.typesafe.ai). A
+browser key always takes precedence over the server-side key. The key
+is stored in `localStorage`.
 
 ```
 # macOS / Linux
@@ -206,9 +202,22 @@ set TYPESAFE_API_KEY=yourkey && node server.js
 $env:TYPESAFE_API_KEY="yourkey"; node server.js
 ```
 
+**No backend:** run `node server.js` with no keys, or open
+`jev-chess.html` directly in a browser. White is played by the local
+heuristic AI. No build step, no external assets.
+
+Backend precedence while the server runs: a Mistral chat backend
+(`MISTRAL_MODEL` + `MISTRAL_API_KEY`) takes precedence over Jev while
+set — `POST /jev` goes to Mistral, and a browser key does not override
+it. With no backend at all, White falls back to the local heuristic.
+
+The port is **3001**, not 3000, because the Go repo's server
+(`Arcade/Go`) uses 3000 — both games can run at the same time.
+
 The HUD shows who is playing at all times:
 
 - A yellow **matchup line** under the title with stone glyphs, e.g.
+  `● You (Black)  vs  ○ Mistral (White)`,
   `● You (Black)  vs  ○ Jev (White)`,
   `● You (Black)  vs  ○ Local AI (White)` (no key),
   `● Local AI (Black)  vs  ○ Jev (White)` (autoplay with key), or
@@ -218,12 +227,14 @@ The HUD shows who is playing at all times:
   matchups and how to switch between them.
 - The indicator in the bottom-right corner:
 
-- **green WHITE: JEV** — Jev is active and choosing White's moves
-- **green WHITE: MISTRAL <model>** — the opt-in Mistral chat backend
+- **green WHITE: JEV** — the Jev backend is active and choosing
+  White's moves
+- **green WHITE: MISTRAL <model>** — the Mistral chat backend
   (`MISTRAL_MODEL`) is active and choosing White's moves
-- **red WHITE: LOCAL AI** — no API key set; the local heuristic is
-  playing White. Press J to enter a key (Jev needs `node server.js` on
-  localhost).
+- **red WHITE: LOCAL AI** — no backend configured; the local
+  heuristic is playing White. Press J to enter a key (Jev needs
+  `node server.js` on localhost; the Mistral backend is configured
+  entirely on the server).
 
 ### Starting, stopping, restarting the server
 
@@ -234,7 +245,7 @@ cd Chess
 node server.js
 ```
 
-It prints a banner, the game URL, and whether a server-side key was
+It prints a banner, the game URL, and which backend (if any) it
 found. The game is then at **http://localhost:3001**.
 
 **Stop** — press `Ctrl+C` in the terminal running it. If it runs in the
@@ -261,49 +272,54 @@ lsof -ti :3001 | xargs kill
 instance is still running. Stop it with the commands above, then start
 again.
 
-**If the server stops mid-game** — Jev polls fail and White stops
-moving (the HUD turns red and shows "NO KEY"). The game retries up to
-3 times before showing an error. Once the server is running again, Jev
-resumes automatically on White's next turn — no page reload needed, as
-long as the server had a key when the page was loaded. If the page was
-loaded while the server was down, either reload the page after starting
-the server, or press `J` and enter a key.
+**If the server stops mid-game** — decision calls fail and White stops
+moving (the HUD turns red). The game retries up to 3 times before
+showing an error. Once the server is running again, the model resumes
+automatically on White's next turn — no page reload needed, as long
+as the server had a backend configured when the page was loaded. If the
+page was loaded while the server was down, either reload the page after
+starting the server, or press `J` and enter a key.
 
 ## How it works
 
-On each White turn:
+The same pipeline drives every backend — only the question format
+changes. On each White turn:
 
 1. **State** — the game builds a text description: the board diagram
    (ranks 8→1, files a-h), material captured by both sides, both
    players' last moves, the material balance with an ahead/behind
    judgment, check status, and a scan of "pieces in danger" (own
    undefended or cheaper-attacked pieces; opponent pieces that can be
-   captured for free) so Jev sees threats.
+   captured for free) so the model sees threats.
 2. **Filter** — when there are more than 30 legal moves, the game
    selects the 30 most relevant: captures, checks, moves of attacked
-   pieces, and center/development moves. This focuses Jev on tactically
-   meaningful options instead of 40+ generic repositioning choices.
-3. **Question** — a single `Choice` question is POSTed through the local
-   proxy to the TypeSafe System One API (model `jev-latest`) — or, when
-   the server runs with `MISTRAL_MODEL`, adapted to one Mistral chat
-   completion with structured outputs: one
-   option per candidate move (labelled `e2e4`-style), each annotated
-   with a quantified exchange verdict (WINS MATERIAL / even trade /
-   BAD MOVE — loses N points), checkmate and check flags, defender
-   abandonment warnings, repetition warnings, rescue and development
-   notes, and — in bare-king endgames — king-squeeze progress toward
-   mate. There is no pass option — chess has no passing.
-4. **Decision** — Jev returns the chosen move, a probability
-   distribution over all options, and a confidence score. No text
-   generation — one typed round trip per turn.
+   pieces, and center/development moves. This focuses the model on
+   tactically meaningful options instead of 40+ generic repositioning
+   choices.
+3. **Question** — a single `Choice` question with one option per
+   candidate move (labelled `e2e4`-style), each annotated with a
+   quantified exchange verdict (WINS MATERIAL / even trade / BAD MOVE
+   — loses N points), checkmate and check flags, defender abandonment
+   warnings, two-move tactic warnings, repetition warnings, rescue and
+   development notes, and — in bare-king endgames — king-squeeze
+   progress toward mate. There is no pass option — chess has no
+   passing. The annotations are the coaching: they were iterated
+   against the heuristic until Jev reached beginner level, and they
+   are included verbatim in the Mistral chat prompt too.
+4. **Decision** — the backend answers the question. Jev returns a
+   choice, a probability distribution over all options, and a
+   confidence score; the Mistral adapter returns a structured choice
+   plus, for hybrid reasoning models, the thinking trace. One round
+   trip per turn either way — no free-form text generation is trusted
+   for the move.
 5. **Pick** — the game plays the highest-probability legal option from
-   the distribution: Jev's best move, with no randomness.
-6. **Retry** — on timeout (10s; 300s for the Mistral chat backend) or
-   error, the game retries up to 3
-   times before showing an error message. There is no fallback on low
-   confidence or errors — the model always plays its best move. The only
-   fallback is when no key is set: White is played by the local
-   heuristic instead.
+   the distribution: the model's best move, with no randomness.
+6. **Retry** — on timeout (10s for Jev; 300s for the Mistral chat
+   backend) or error, the game retries up to 3 times before showing an
+   error message. There is no fallback on low confidence or errors —
+   the model always plays its best move. The only fallback is when no
+   backend is configured: White is played by the local heuristic
+   instead.
 
 ```
 board state + piece threats -> text -> filter to 30 candidates
@@ -317,15 +333,15 @@ console, `window.jevLog()` returns the last 200 decisions and
 
 ## Autoplay mode
 
-Press **0** to toggle autoplay: Jev (White) plays against the local
-heuristic AI (Black), with no human input. Each side moves on a ~700ms
-cadence, and when the game ends the result appears in large red letters
-across the board for a few seconds before a new game starts
-automatically. The result line names the AIs instead of "you" — **Local
-AI** (Black) vs **Jev** (White) — so you can watch Jev's best moves
-against the greedy heuristic's captures-and-material play. Without an
-API key, autoplay is local AI vs local AI — both sides use the
-heuristic.
+Press **0** to toggle autoplay: the configured model (White) plays
+against the local heuristic AI (Black), with no human input. Each side
+moves on a ~700ms cadence, and when the game ends the result appears in
+large red letters across the board for a few seconds before a new game
+starts automatically. The result line names the players instead of
+"you" — **Local AI** (Black) vs **Jev** or **Mistral** (White) — so you
+can watch the model's best moves against the greedy heuristic's
+captures-and-material play. Without a backend, autoplay is local AI vs
+local AI — both sides use the heuristic.
 
 Toggling autoplay off mid-game returns control: you play Black from
 whatever position the board is in. Undo is disabled while autoplay
@@ -334,14 +350,16 @@ runs.
 ## Architecture
 
 ```
-jev-chess.html  — entire game (single file, no dependencies)
-server.js       — local Node.js server + Jev CORS proxy (run: node server.js)
+jev-chess.html  — entire harness: game, engine, prompt, UI (single file, no dependencies)
+server.js       — local Node.js server + decision proxy + Mistral chat adapter (run: node server.js)
 le-chonk.webp   — Mistral Large 4 release art, shown by the Le Chonk skin
 index.html      — redirect to jev-chess.html, so GitHub Pages serves the game
 ```
 
 The game logic (moves, castling, en passant, check, mate/draw
-detection) is pure functions over an 8x8 array; the Jev integration
-mirrors the pattern used in
+detection) is pure functions over an 8x8 array, validated against
+standard perft references (start, Kiwipete, positions 3 and 4). The
+model integration mirrors the pattern used in
 [Go](https://github.com/dagfinndybvig/Go) and
-[Fight](https://github.com/dagfinndybvig/Fight).
+[Fight](https://github.com/dagfinndybvig/Fight); the chat adapter
+policy is documented in DESIGN.md.
