@@ -31,7 +31,7 @@ const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || "";
 let mistralReasoning = process.env.MISTRAL_REASONING || "high";
 const MISTRAL_HOST = "api.mistral.ai";
 const MISTRAL_PATH = "/v1/chat/completions";
-const MISTRAL_TIMEOUT = 120000;
+const MISTRAL_TIMEOUT = 300000; // full reasoning can exceed 120s on dense positions
 
 const MIME = {
   ".html": "text/html",

@@ -159,7 +159,8 @@ that backend.
   key). Without a key, White falls back to the local heuristic — the
   game keeps playing. There is no fallback on low confidence or
   errors: `whiteMove` retries up to 3 times (10s timeout per attempt,
-  120s when the backend is Mistral); if all retries fail it shows an
+  300s when the backend is Mistral — full reasoning can exceed 120s
+  on dense positions); if all retries fail it shows an
   error message and plays no move.
 - Backend precedence: a Mistral chat backend (`MISTRAL_MODEL` +
   `MISTRAL_API_KEY` on the server) takes precedence over Jev while

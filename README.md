@@ -122,7 +122,8 @@ MISTRAL_MODEL=mistral-large-4 MISTRAL_API_KEY=yourkey node server.js
 ```
 
 Open **http://localhost:3001** — the Le Chonk banner appears, and the
-fat cat plays White (60–120 seconds per move, with its reasoning shown
+fat cat plays White (1–3 minutes per move at full reasoning, with its
+reasoning shown
 in the thinking panel). On Windows, see the env-var syntax below.
 
 **Without a server (local AI plays White):** open `jev-chess.html`
@@ -175,8 +176,9 @@ comparable with the Jev benchmarks above — the synthetic peaked
 probabilities are not model confidences.
 
 Speed: Le Chonk reasons over every annotated option, so with full
-thinking a move takes roughly 60–120 seconds (the game's timeout is
-120 seconds for this backend). The **Reasoning: on / Reasoning: off**
+thinking a move takes 1–3 minutes on dense positions (the game's
+timeout is 300 seconds for this backend). The **Reasoning: on /
+Reasoning: off**
 button in the controls (green / red) switches at runtime — off skips
 the reasoning trace entirely and, measured, drops moves to about a
 second, at the cost of the thinking panel's content (and likely some
@@ -296,7 +298,7 @@ On each White turn:
    generation — one typed round trip per turn.
 5. **Pick** — the game plays the highest-probability legal option from
    the distribution: Jev's best move, with no randomness.
-6. **Retry** — on timeout (10s; 120s for the Mistral chat backend) or
+6. **Retry** — on timeout (10s; 300s for the Mistral chat backend) or
    error, the game retries up to 3
    times before showing an error message. There is no fallback on low
    confidence or errors — the model always plays its best move. The only

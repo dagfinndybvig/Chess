@@ -306,7 +306,8 @@ prompt, not just the labels. The reply's choice is returned with
 synthetic peaked probabilities (0.5 for the pick, the rest shared) and
 a fixed 0.9 confidence, so the browser's argmax plays the model's pick
 deterministically. Upstream status codes are forwarded, the browser uses
-a 120-second timeout for this backend, and a browser key does not
+a 300-second timeout for this backend (full reasoning can exceed 120
+seconds on dense positions), and a browser key does not
 override it. This is a chat-adapter policy: it is metered, and its
 results are not comparable with the Jev measurements above.
 
