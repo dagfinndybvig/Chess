@@ -32,6 +32,9 @@ let mistralReasoning = process.env.MISTRAL_REASONING || "high";
 const MISTRAL_HOST = "api.mistral.ai";
 const MISTRAL_PATH = "/v1/chat/completions";
 const MISTRAL_TIMEOUT = 300000; // full reasoning can exceed 120s on dense positions
+// The browser aborts a TypeSafe decision after 10s and the bench harness
+// after 90s, but the proxy itself should never hold a socket open forever.
+const TS_TIMEOUT = 300000;
 
 const MIME = {
   ".html": "text/html",
@@ -305,9 +308,22 @@ function proxyJev(req, res) {
         up.pipe(res);
       }
     );
+    const timer = setTimeout(() => {
+      upstream.destroy(new Error("upstream timed out after " + TS_TIMEOUT + "ms"));
+    }, TS_TIMEOUT);
+    upstream.on("close", () => clearTimeout(timer));
     upstream.on("error", (e) => {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "proxy_error", detail: String(e.message) }));
+      clearTimeout(timer);
+      // A mid-stream failure (including a late timeout) cannot write a
+      // status line anymore — just cut the response.
+      if (res.headersSent || res.destroyed || res.writableEnded) {
+        res.destroy();
+        return;
+      }
+      const detail = String(e.message);
+      const timedOut = /timed out/i.test(detail);
+      res.writeHead(timedOut ? 504 : 502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: timedOut ? "proxy_timeout" : "proxy_error", detail }));
     });
     upstream.end(body);
   });
