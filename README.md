@@ -110,6 +110,20 @@ off/on (0)**, **API key (J)**, and **Jev log (L)**.
 
 ## Running
 
+**Quick start with Le Chonk (Mistral Large 4):** install
+[Node.js 18 or newer](https://nodejs.org), get an API key from
+[Mistral](https://console.mistral.ai), then:
+
+```
+git clone https://github.com/dagfinndybvig/Chess
+cd Chess
+MISTRAL_MODEL=mistral-large-4 MISTRAL_API_KEY=yourkey node server.js
+```
+
+Open **http://localhost:3001** — the Le Chonk banner appears, and the
+fat cat plays White (60–120 seconds per move, with its reasoning shown
+in the thinking panel). On Windows, see the env-var syntax below.
+
 **Without a server (local AI plays White):** open `jev-chess.html`
 directly in a browser. No build step, no external assets. Without an
 API key, White is played by the local heuristic AI — the game works,
@@ -134,7 +148,8 @@ The port is **3001**, not 3000, because the Go repo's server
 
 **With Mistral (chat adapter, Le Chonk):** set `MISTRAL_MODEL` (for
 example `mistral-large-4`, the Mistral Large 4 "Le Chonk" preview) plus
-`MISTRAL_API_KEY` in the environment and run the same server:
+`MISTRAL_API_KEY` (from [console.mistral.ai](https://console.mistral.ai))
+in the environment and run the same server:
 
 ```
 # Windows (cmd.exe)
@@ -203,10 +218,10 @@ The HUD shows who is playing at all times:
 
 ### Starting, stopping, restarting the server
 
-**Start** — from the game folder:
+**Start** — from the game folder (wherever you cloned it):
 
 ```
-cd C:\Users\dybvig\Arcade\Chess
+cd Chess
 node server.js
 ```
 

@@ -4,8 +4,14 @@ Notes for coding agents working in this repo. Read this before editing.
 
 ## What this is
 
-An 8x8 chess game (`jev-chess.html`, single file, no dependencies)
-whose White pieces are played by the TypeSafe "System One" decision
+The product is **Chess Harness** (page title, `<h1>`, server banner,
+README H1). "Jev" names the AI player, not the game — do not rebrand
+the player back into the title, and do not rename the file
+`jev-chess.html` or the `/jev` endpoint (Pages and docs link them).
+
+An 8x8 chess game (`jev-chess.html`, single file plus the committed
+`le-chonk.webp` banner art) whose White pieces are played by the
+TypeSafe "System One" decision
 model (Jev) when an API key is available — falling back to a local
 greedy heuristic when no key is set. A local greedy heuristic drives
 Black in autoplay mode. `server.js` is a zero-dependency Node proxy that
@@ -81,13 +87,27 @@ repo's AGENTS.md — the pattern is identical). Known traps:
   `{serverKey:false}` and POST `/jev` with `{answers:{move:{choice,
   confidence, probabilities}}}` — any probabilities work, the game
   plays the argmax over legal labels (deterministic, no temperature
-  sampling).
+  sampling). `thinking` is an optional field only the Mistral adapter
+  sends; include a string in the mock to exercise the Chonk UI panel.
 - `heuristicPick` has random tie-breaking (`Math.random() * 2` in the
   score). Never assert a specific move choice — assert stone/piece
   counts or game termination.
 - `undo()` restores the most recent snapshot where Black was to move —
   it takes back a full move pair, not one ply.
 - Delete test scripts when done; they are not committed.
+
+### Bench harness
+
+`bench-jev.js` (headless autoplay of White vs the local heuristic
+through the live proxy, writing per-game records with confidence and
+hanging-piece metrics to `bench-results.json`) exists ONLY in this
+local checkout — it is hidden via `.git/info/exclude`, not
+`.gitignore`, so a fresh clone has neither file and git status stays
+clean. Do not commit them, and pass a custom outfile (`node
+bench-jev.js 1 my-run.json`) so the author's retained results are not
+clobbered. Its per-move deadline is 90s — too tight for Le Chonk
+(see the Mistral invariant above); use a single-move replay to verify
+that backend.
 
 ### Shell quirks (Git Bash on Windows)
 
@@ -97,6 +117,14 @@ repo's AGENTS.md — the pattern is identical). Known traps:
   bash — use the edit tool for source changes, not shell one-liners.
 - Quote URLs with parentheses.
 - Do not print `TYPESAFE_API_KEY`; it is set in this environment.
+  `MISTRAL_API_KEY` lives in `~/.vibe/.env` — never print it or commit
+  it; to run the Chonk backend, source that file in a launcher script
+  (`set -a; source ~/.vibe/.env; set +a`) instead of exporting the key
+  in a command line, which lands it in tool logs.
+- `kill $!` in Git Bash does NOT kill the Windows node child, and the
+  background process tool's stop sometimes leaves it alive too — always
+  confirm with `netstat -ano | findstr :3001` and `taskkill //F //PID
+  <pid>` (double slashes in Git Bash) before starting another server.
 
 ### Server lifecycle
 
@@ -166,8 +194,15 @@ repo's AGENTS.md — the pattern is identical). Known traps:
   set in `applyMove` for every White move — Jev and heuristic-fallback
   alike. Keep it that way (the Go repo had a regression here).
 - `moveList` (all moves played, for the state text's history line and
-  the anti-shuffle detection) is pushed in `applyMove` and reset in
-  `newGame`. Keep both updated together.
+  the anti-shuffle detection) is pushed in `applyMove`, reset in
+  `newGame`, and truncated by `undo`. Keep all three updated together.
+- `applyMove` performs all end detection (checkmate, stalemate,
+  fifty-move, insufficient material, threefold) synchronously, and
+  `repMap`/`history` must stay consistent for undo: each history entry
+  stores the `repKey` its move created (undo decrements it), plus a
+  copy of `captures` and the `moveList` length, which `undo` restores —
+  without them the scoreboard and Jev's state text lie after an undo
+  (this exact bug shipped and was fixed; don't reintroduce it).
 - `describeMove`'s annotations drive Jev's skill level and were
   iterated to beginner strength against the heuristic (see DESIGN.md's
   measured results). The load-bearing ones: the quantified 3-ply
@@ -182,10 +217,6 @@ repo's AGENTS.md — the pattern is identical). Known traps:
 - `moveSeq` invalidates pending Jev decisions: `whiteMove` captures it
   before its async work, and `undo`/`newGame` bump it. A Jev answer
   arriving after an undo or new game must be discarded, not played.
-- `applyMove` performs all end detection (checkmate, stalemate,
-  fifty-move, insufficient material, threefold) synchronously, and
-  `repMap`/`history` must stay consistent for undo (each history entry
-  stores the `repKey` its move created; `undo` decrements it).
 - `Jev.ready()` gates White's opening move so the first move of the
   game is not played by the heuristic while `/jevstatus` is still in
   flight. Keep this — without it the opening is wrong whenever a
