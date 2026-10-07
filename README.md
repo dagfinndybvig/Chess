@@ -103,11 +103,11 @@ machine (Jev or the local AI) always plays the first move.
 | Undo | Undo button (returns to your turn, taking back the last full move pair) |
 | New game | New game button |
 | Set Jev API key | `J` |
-| Toggle Jev log panel | `L` |
+| Toggle log panel | `L` |
 | Toggle autoplay (Jev vs local AI) | `0` |
 
 All of these are also visible as buttons above the board: **Autoplay:
-off/on (0)**, **API key (J)**, and **Jev log (L)**.
+off/on (0)**, **API key (J)**, and **Log (L)**.
 
 ## Running
 
@@ -176,11 +176,12 @@ probabilities are not model confidences.
 
 Speed: Le Chonk reasons over every annotated option, so with full
 thinking a move takes roughly 60–120 seconds (the game's timeout is
-120 seconds for this backend). The **Chonk: fast / Chonk: thinking**
-button in the controls switches at runtime — fast mode
-(`MISTRAL_REASONING=none` at startup) skips the reasoning trace
-entirely and, measured, drops moves to about a second, at the cost of
-the thinking panel's content (and likely some play quality).
+120 seconds for this backend). The **Reasoning: on / Reasoning: off**
+button in the controls (green / red) switches at runtime — off skips
+the reasoning trace entirely and, measured, drops moves to about a
+second, at the cost of the thinking panel's content (and likely some
+play quality). The default is full reasoning;
+`MISTRAL_REASONING=none` at server start gives fast sessions.
 `mistral-large-4` accepts only `high` or `none`.
 
 When this backend is active, the page gets a **Le Chonk** skin: a

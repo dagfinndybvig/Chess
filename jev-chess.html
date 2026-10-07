@@ -64,7 +64,7 @@
   <button id="newBtn">New game</button>
   <button id="autoBtn">Autoplay: off (0)</button>
   <button id="keyBtn">API key (J)</button>
-  <button id="logBtn">Jev log (L)</button>
+  <button id="logBtn">Log (L)</button>
   <button id="chonkBtn" style="display:none">Chonk: thinking</button>
 </div>
 <div id="score"></div>
@@ -74,7 +74,7 @@
 </div>
 <div id="modes">
   <b>You (Black) vs White AI</b> — the model playing White is named above ·
-  <b>0</b> autoplay · <b>J</b> API key · <b>L</b> Jev log ·
+  <b>0</b> autoplay · <b>J</b> API key · <b>L</b> log ·
   <a href="https://en.wikipedia.org/wiki/Chess" target="_blank" rel="noopener">Chess on Wikipedia</a>
 </div>
 <div id="jevhud"></div>
@@ -1107,20 +1107,22 @@ function updateChonkUi() {
   btn.style.display = on ? 'inline-block' : 'none';
   if (on) {
     const reasoning = Jev.getReasoning();
-    const fast = reasoning === 'none';
-    btn.textContent = fast ? 'Chonk: fast' : 'Chonk: thinking';
-    // traffic-light the mode: red = fast, green = full thinking,
-    // yellow = anything between (low/medium, if a model ever offers it)
-    btn.style.color = fast ? '#e53935' : reasoning === 'high' ? '#4caf50' : '#ffd54f';
-    btn.title = fast
-      ? 'Fast mode: no reasoning trace, about a second per move. Click to switch to full thinking (1-2 minutes per move, shown in the panel).'
-      : 'Full thinking: 1-2 minutes per move with the reasoning shown in the panel. Click to switch to fast mode (no thinking).';
+    const off = reasoning === 'none';
+    btn.textContent = off ? 'Reasoning: off' : reasoning === 'high' ? 'Reasoning: on' : 'Reasoning: ' + reasoning;
+    // traffic-light the mode: red = off (fast), green = on (full thinking),
+    // yellow = anything between (low/medium, if a model ever offers it).
+    // The default is full reasoning; it can be toggled here or set at
+    // server start with MISTRAL_REASONING for slow/fast sessions.
+    btn.style.color = off ? '#e53935' : reasoning === 'high' ? '#4caf50' : '#ffd54f';
+    btn.title = off
+      ? 'Fast mode: no reasoning trace, about a second per move. Click to switch on full reasoning (1-2 minutes per move, shown in the thinking panel).'
+      : 'Full reasoning: 1-2 minutes per move, with the trace shown in the thinking panel. Click to switch it off for fast moves (about a second).';
     // replace placeholder text when the mode flips; never overwrite real thinking
     const panel = document.getElementById('think');
     const isPlaceholder = !panel.textContent ||
       panel.textContent.startsWith('Le Chonk is warming up') ||
       panel.textContent.startsWith('Fast mode — Le Chonk');
-    if (isPlaceholder) panel.textContent = fast
+    if (isPlaceholder) panel.textContent = off
       ? 'Fast mode — Le Chonk plays without a reasoning trace.'
       : 'Le Chonk is warming up — its thinking will appear here after its first move.';
   }
@@ -1169,7 +1171,7 @@ document.getElementById('logBtn').addEventListener('click', toggleLog);
 document.getElementById('chonkBtn').addEventListener('click', () => {
   if (!chonkActive()) return;
   const btn = document.getElementById('chonkBtn');
-  btn.textContent = 'Chonk: switching...';
+  btn.textContent = 'Reasoning: ...';
   Jev.toggleReasoning().then(updateChonkUi).catch(updateChonkUi);
 });
 

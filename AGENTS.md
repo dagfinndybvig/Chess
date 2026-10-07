@@ -180,15 +180,16 @@ that backend.
   thinking, so the local bench harness's 90s per-move deadline stalls
   Chonk games — verify this backend with a single-move replay, not a
   full bench run. The reasoning effort is RUNTIME server state
-  (`mistralReasoning`, default from `MISTRAL_REASONING` or "high"):
-  `/jevstatus` reports it as `reasoning`, `POST /jevreasoning {effort}`
-  sets it (high/none; low/medium pass through for other models), and
-  the browser's Chonk mode button toggles it via
-  `Jev.toggleReasoning()` with the label driven by
-  `updateChonkUi()` — placeholder panel text flips with the mode but
-  real thinking text is never overwritten. mistral-large-4 accepts
-  only `high` (long thinking, fills the panel) or `none` (~1s per
-  move, no reasoning trace).
+  (`mistralReasoning`, default from `MISTRAL_REASONING` or "high" —
+  the default is FULL reasoning): `/jevstatus` reports it as
+  `reasoning`, `POST /jevreasoning {effort}` sets it (high/none;
+  low/medium pass through for other models), and the browser's
+  Reasoning button toggles it via `Jev.toggleReasoning()` — label
+  "Reasoning: on" (green, high) / "Reasoning: off" (red, none) /
+  yellow for low-medium — with placeholder panel text flipping with
+  the mode but real thinking text never overwritten. mistral-large-4
+  accepts only `high` (long thinking, fills the panel) or `none`
+  (~1s per move, no reasoning trace).
 - The Chonk UI: the server passes the reasoning trace through as
   `answers.move.thinking`; `query` returns it, `chooseMove` logs it,
   and `whiteMove` calls `showThinking()` after a successful move, which
