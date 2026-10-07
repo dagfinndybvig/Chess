@@ -1,6 +1,3 @@
-<img width="333" height="425" alt="chesschonk2" src="https://github.com/user-attachments/assets/b6724a7d-9f40-4413-a6d7-4ce149bf092f" />
-<img width="395" height="234" alt="chesschonk3png" src="https://github.com/user-attachments/assets/84b7b38d-fe12-4de6-b83f-d68986f44f33" />
-
 
 # Chess Harness
 
@@ -9,6 +6,8 @@ testing AI models at chess**. The White pieces are driven by whichever
 model backend the server is configured with — you plug a model in,
 play against it, or watch it benchmark itself in autoplay. You play
 Black.
+
+<img width="333" height="425" alt="chesschonk2" src="https://github.com/user-attachments/assets/b6724a7d-9f40-4413-a6d7-4ce149bf092f" />
 
 Two backends have been tried with it so far:
 
@@ -25,6 +24,8 @@ API key. This follows the same architecture as
 [Go](https://github.com/dagfinndybvig/Go) and
 [Fight](https://github.com/dagfinndybvig/Fight) in the same Arcade
 collection, both of which use the same pattern.
+
+<img width="395" height="234" alt="chesschonk3png" src="https://github.com/user-attachments/assets/84b7b38d-fe12-4de6-b83f-d68986f44f33" />
 
 Why chess as a model test? The models being tested are general-purpose
 decision or chat models, not dedicated chess engines. The harness gives
