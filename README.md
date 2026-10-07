@@ -87,8 +87,9 @@ the game still works, just without Jev.
 ## Rules
 
 Full chess rules on an 8x8 board: all piece moves, castling, en passant,
-pawn promotion (auto-queen — a deliberate simplification, since
-under-promotions are rare and it keeps the move set small for Jev),
+pawn promotion — Jev and the local AI consider all four promotion
+pieces and are coached to prefer the queen (your own click-promotion
+plays a queen),
 check, checkmate, and stalemate. Draws are detected for the fifty-move
 rule, threefold repetition, and insufficient material (K vs K, K+minor
 vs K). There is no pass in chess — White opens every game, so the

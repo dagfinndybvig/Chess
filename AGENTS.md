@@ -50,15 +50,19 @@ coordName(x2,y2)`; coordinates are files `a-h` (x 0-7) and ranks 1-8
 (y+1). Test fixtures that assume `board[x][y]` or that rank 8 is y=0
 will pass syntax checks and fail mysteriously.
 
-### Promotion is auto-queen
+### Promotions are full (Q/R/B/N)
 
-`genPseudo` generates exactly one move per promotion (always `Q` via
-`makeMove`). Standard perft reference numbers (which count Q/R/B/N
-promotions as four moves) are therefore WRONG for this engine at any
-depth where a promotion occurs. Valid references: start position
-perft(3) = 8902, Kiwipete perft(3) = 97862, position 3 perft(4) =
-43238 (no promotions in those trees at those depths). Position 4 is
-only valid at depth 1.
+`genPseudo` generates all four promotion options per promotion (pushes
+and captures); `m.promo` holds the target piece and `makeMove` honors
+it. `PROMOS` lists the queen first, so "first legal move to a square"
+logic (the human's click) still promotes to a queen — only Jev and the
+heuristic see all four options. Standard perft references are valid at
+every depth; validated: start d3 = 8902, start d4 = **197281** (NOT
+197285 — that number is wrong; Stockfish's own `go perft 4` divide
+sums to 197281), Kiwipete d3 = 97862, position 3 d4 = 43238 and
+d5 = 674624, position 4 d1/d2/d3 = 6/264/9467 (position 4's FEN castling
+field is `kq` — fixtures must pass black's rights or the count is short
+by the missing castles).
 
 ### Testing headlessly
 
@@ -207,10 +211,13 @@ that backend.
   iterated to beginner strength against the heuristic (see DESIGN.md's
   measured results). The load-bearing ones: the quantified 3-ply
   exchange verdict (BAD MOVE / WINS MATERIAL), defender-abandonment
-  detection, third-occurrence repetition warnings, the passive-shuffle
-  flag, and the `endgameMode` king-squeeze annotations. If you change
-  them, re-run headless autoplay games and compare — do not trust
-  descriptions alone.
+  detection, the two-move tactic warning (an opponent quiet reply that
+  leaves a NEW White piece hanging — warning only, never BAD MOVE),
+  the conversion escalations when ahead by 4+ (CONVERSION state line,
+  repetition/shuffle wording), third-occurrence repetition warnings,
+  the passive-shuffle flag, and the `endgameMode` king-squeeze
+  annotations. If you change them, re-run headless autoplay games and
+  compare — do not trust descriptions alone.
 - `endgameMode` is computed per turn in `query()` (via `kingHuntMode()`)
   BEFORE the criteria are built, because `describeMove` reads it.
   Preserve that ordering.

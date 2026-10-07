@@ -38,32 +38,38 @@ iteration 4).
 
 ## Next steps
 
-- [ ] Port the `mistralContentJson` fix to the Go repo's server.js: its
-      Mistral adapter has the identical bug — it `JSON.parse`s
-      `message.content`, but `mistral-large-4` (Le Chonk, a hybrid
-      reasoning model) returns an array of parts (`thinking` + `text`),
-      so every real reply fails with "Mistral returned invalid JSON"
-      (502). The Chess fix extracts the `text` parts and also accepts a
-      parsed-object or string content; see AGENTS.md's Jev integration
-      invariants here.
-
-- [ ] Conversion: Jev drew by repetition while up 10-6 (batch 2, game
-      1) — coach it to keep making progress instead of shuffling when
-      ahead
-- [ ] Blunder avoidance: 3 of 12 games were lost to tactical blunders
-      (a mate in 26 plies while up 33-32, one in 18 plies while down
-      35-38, one in 122 plies while down 0-9) — add two-move tactic
-      warnings (opponent's reply that creates a NEW hanging piece)
+- [x] Port the `mistralContentJson` fix to the Go repo's server.js
+      (committed locally in Arcade/Go; push when convenient)
+- [x] GitHub Pages deployment check — dagfinndybvig.github.io/Chess
+      serves the game with the Chess Harness branding and the
+      le-chonk.webp asset resolves (200)
+- [x] Under-promotion support — all four promotion options are
+      generated (Q/R/B/N, queen first; the human's click still
+      promotes to a queen), with under-promotion annotations coaching
+      queen-first; perft re-validated against standard references at
+      new depths (start d4 = 197281, position 3 d5 = 674624,
+      position 4 d2/d3 = 264/9467)
+- [x] Blunder avoidance: two-move tactic warnings — an opponent quiet
+      reply that leaves a NEW hanging White piece is named as a
+      tactical risk on the candidate (warning, not BAD MOVE);
+      mechanically validated; a 3-game smoke batch (1.5/3) is inside
+      historical variance and too small to measure an effect
+- [x] Conversion coaching when ahead by 4+ — CONVERSION state line
+      and repetition/shuffle escalations; mechanically validated, but
+      the smoke batch still hit the 250-ply cap while up 4-1, so the
+      weakness is coached, not fixed
+- [ ] Run the 12-game measurement batch for the iteration-5
+      annotations (node bench-jev.js 12 <outfile>) and record the
+      score honestly — wins, losses, and conversion failures alike
+- [ ] Conversion: deeper levers if the coaching proves insufficient —
+      a per-move progress metric (king distance, mobility, advanced
+      pawns) rather than wording alone
 - [ ] Measure against a stronger baseline: give the local heuristic a
-      2-ply search or material+mobility evaluation, and see where Jev's
-      beginner level actually caps out
+      2-ply search or material+mobility evaluation, and see where
+      Jev's beginner level actually caps out (needs paired,
+      seed-balanced games — a methodology decision before spending
+      API calls)
 - [ ] Play a human beginner and report honestly
 - [ ] If more strength is wanted, candidate levers: pinned-piece
       annotations, king-safety summary (attackers near the king, open
       files) in the state text
-- [ ] GitHub Pages deployment check (repo pushed; verify
-      dagfinndybvig.github.io/Chess serves and falls back to the local
-      AI for White)
-- [ ] Optional: under-promotion support (currently auto-queen) —
-      note that perft reference numbers in AGENTS.md assume
-      auto-queen if this changes

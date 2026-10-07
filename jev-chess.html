@@ -90,6 +90,7 @@
 const N = 8;                 // 8x8 board
 const FILES = 'abcdefgh';
 const POINTS = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0 };
+const PROMOS = ['Q', 'R', 'B', 'N']; // promotion options; queen first (see genPseudo)
 const PIECE_NAME = { P: 'pawn', N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king' };
 const GLYPH = { K: '\u265A', Q: '\u265B', R: '\u265C', B: '\u265D', N: '\u265E', P: '\u265F' };
 const MARGIN = 24, CELL = (468 - 2 * MARGIN) / N;
@@ -189,8 +190,11 @@ function genPseudo(bd, color, castle, ep) {
     const up = p.toUpperCase();
     if (up === 'P') {
       const dir = color === 'w' ? 1 : -1, start = color === 'w' ? 1 : 6, last = color === 'w' ? 7 : 0;
+      // a promotion generates all four standard options (Q/R/B/N);
+      // m.promo holds the target piece, and genPseudo pushes Q first so
+      // "first move to a square" logic (the human's click) promotes to queen
       if (bd[y + dir][x] === '') {
-        if (y + dir === last) add(x, y, x, y + dir, { promo: up });
+        if (y + dir === last) { for (const pr of PROMOS) add(x, y, x, y + dir, { promo: pr }); }
         else add(x, y, x, y + dir);
         if (y === start && bd[y + 2 * dir][x] === '') add(x, y, x, y + 2 * dir, { double: true });
       }
@@ -199,7 +203,7 @@ function genPseudo(bd, color, castle, ep) {
         if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
         const t = bd[ny][nx];
         if (t && colorOf(t) !== color) {
-          if (ny === last) add(x, y, nx, ny, { promo: up });
+          if (ny === last) { for (const pr of PROMOS) add(x, y, nx, ny, { promo: pr }); }
           else add(x, y, nx, ny);
         } else if (!t && ep && ep.x === nx && ep.y === ny) {
           add(x, y, nx, ny, { ep: true, captured: color === 'w' ? 'p' : 'P' });
@@ -258,7 +262,7 @@ function makeMove(bd, m) {
   const p = nb[m.y1][m.x1];
   nb[m.y1][m.x1] = '';
   if (m.ep) nb[m.y1][m.x2] = '';
-  nb[m.y2][m.x2] = m.promo ? (colorOf(p) === 'w' ? 'Q' : 'q') : p;
+  nb[m.y2][m.x2] = m.promo ? (colorOf(p) === 'w' ? m.promo : m.promo.toLowerCase()) : p;
   if (m.castle === 'K') { nb[m.y1][5] = nb[m.y1][7]; nb[m.y1][7] = ''; }
   if (m.castle === 'Q') { nb[m.y1][3] = nb[m.y1][0]; nb[m.y1][0] = ''; }
   return nb;
@@ -446,6 +450,7 @@ const Jev = (() => {
     const bits = [];
     const up = m.piece.toUpperCase();
     const gain = m.captured ? POINTS[m.captured.toUpperCase()] : 0;
+    const matDiff = materialCount(board).w - materialCount(board).b;
     // Resulting position: check, mate, and a quantified 3-ply exchange line
     // (my capture, opponent's most damaging recapture, my recapture).
     const givesCheck = inCheck(m.board, 'b');
@@ -502,8 +507,35 @@ const Jev = (() => {
       bits.push('BAD MOVE — abandons your ' + newlyHanging.slice(0, 2).join(' and ') + ': it can now be captured for free');
       bad = true;
     }
+    // Two-move tactic: the opponent's quiet reply that would leave a NEW
+    // White piece hanging (attacked, undefended) that was safe right after
+    // this move. A warning, not BAD MOVE — White still gets a move to react.
+    if (oppMoves.length) {
+      let worstVal = 0, worstReply = '', worstHang = '';
+      for (const om of oppMoves) {
+        if (om.captured) continue; // captures are covered by the exchange verdict
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const p = om.board[y][x];
+          if (!p || p !== p.toUpperCase() || p === 'K') continue;
+          if (x === m.x2 && y === m.y2) continue; // the moved piece is covered above
+          if (attackScan(om.board, x, y, 'b', false) < Infinity &&
+              attackScan(om.board, x, y, 'w', false) === Infinity) {
+            const alreadyHanging = m.board[y][x] === p &&
+              attackScan(m.board, x, y, 'b', false) < Infinity &&
+              attackScan(m.board, x, y, 'w', false) === Infinity;
+            if (alreadyHanging) continue; // not new: it was hanging before their reply too
+            const val = POINTS[p];
+            if (val > worstVal) { worstVal = val; worstReply = moveLabel(om); worstHang = PIECE_NAME[p] + ' at ' + coordName(x, y); }
+          }
+        }
+      }
+      if (worstVal >= 3) bits.push('tactical risk: the opponent can reply ' + worstReply + ', leaving your ' + worstHang +
+        ' attacked and undefended — it can then be won; prefer a move that keeps every piece defended or creates a bigger threat');
+    }
     if (m.captured) bits.push('captures opponent ' + PIECE_NAME[m.captured.toUpperCase()] + ' (' + gain + ' points)');
-    if (m.promo) bits.push('promotes your pawn to a queen (9 points)');
+    if (m.promo) bits.push('promotes your pawn to a ' + PIECE_NAME[m.promo] + ' (' + POINTS[m.promo] + ' points)' +
+      (m.promo === 'Q' ? '' : ' — an under-promotion; choose it only when the ' + PIECE_NAME[m.promo] +
+        ' is tactically required (a knight check, avoiding stalemate), otherwise prefer the queen'));
     if (m.castle) bits.push('castles — moves your king to safety and brings your rook into play');
     if (inCheck(board, 'w')) bits.push('takes your king out of check');
     // Was the moved piece attacked (and hanging) before the move?
@@ -518,11 +550,15 @@ const Jev = (() => {
       bits.push('BAD MOVE — repeats a position for the THIRD time: this move DRAWS THE GAME immediately and gives up the chance to win. NEVER choose this.');
       bad = true;
     }
-    else if (repCount === 1) bits.push('repeats a position seen once before — one more repeat of it would draw');
+    else if (repCount === 1) bits.push(matDiff >= 4
+      ? 'repeats a position seen once before while you are ahead on material — repetition throws the win away; prefer a move that makes progress'
+      : 'repeats a position seen once before — one more repeat of it would draw');
     // Anti-shuffle: moving a piece straight back to a square it recently left
     const rev = coordName(m.x2, m.y2) + coordName(m.x1, m.y1);
     if (!m.captured && !givesCheck && moveList.slice(-6).includes(rev))
-      bits.push('passive shuffle: moves the piece straight back where it recently came from — it makes no progress; prefer a move that improves your position or creates a threat');
+      bits.push('passive shuffle: moves the piece straight back where it recently came from — it makes no progress' +
+        (matDiff >= 4 ? '; you are ahead, so shuffling lets the opponent regroup — press your advantage with every move' : '') +
+        '; prefer a move that improves your position or creates a threat');
     // Endgame: everything is judged by progress toward mate
     if (endgameMode) {
       const bk = findKing(board, 'b');
@@ -582,6 +618,8 @@ const Jev = (() => {
          mat.b > mat.w ? 'You are behind — fight for material and attack weakly defended pieces.' :
          'The game is even — develop carefully and do not give away material.'),
     ];
+    if (mat.w - mat.b >= 4)
+      lines.push('CONVERSION: you are ahead by ' + (mat.w - mat.b) + ' points. Convert the advantage: keep every piece defended, trade when it simplifies toward a won endgame, and press toward checkmate — NEVER repeat positions or shuffle pieces: a draw throws a winning position away.');
     if (inCheck(board, 'w')) lines.push('You are in check! Every candidate move escapes it — choose the one that keeps your position safest.');
     if (kingHuntMode()) {
       lines.push('ENDGAME — the opponent has almost no material and you are winning. ONLY CHECKMATE wins: a draw by repetition or the fifty-move rule throws the entire win away. Mating technique: use your king and pieces together to take away the enemy king\'s escape squares and drive it to an edge or corner; advance your own king to help (a rook or queen alone cannot mate in the middle of the board); give checks only when they push the king toward the edge or finish the mate; NEVER repeat a position — every move must reduce the enemy king\'s freedom. Fifty-move clock: ' + halfmove + ' halfmoves since the last capture or pawn move (100 draws).');
@@ -663,6 +701,7 @@ const Jev = (() => {
     if (moves.length <= MAX_OPTIONS) return moves;
     const scored = moves.map(m => {
       let s = m.captured ? POINTS[m.captured.toUpperCase()] * 100 : 0;
+      if (m.promo) s += m.promo === 'Q' ? 100 : 1; // queen first; under-promotions do not crowd out real moves
       if (inCheck(m.board, 'b')) s += 50;
       if (attackScan(board, m.x1, m.y1, 'b', false) < Infinity) s += 100;
       if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) s += 10;
@@ -736,6 +775,7 @@ function heuristicPick(moves, color) {
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
     let s = (m.captured ? POINTS[m.captured.toUpperCase()] : 0) * 100;
+    if (m.promo) s += POINTS[m.promo] * 10; // queen promotion scores highest
     // After the move, how much material can the opponent win in reply?
     const oppMoves = legalMoves(m.board, o, castleRightsAfter(m), null);
     let oppBestCap = 0;

@@ -153,6 +153,33 @@ fresh run because of variance, not the fix: the losses were blunders
 convert a winning position (drew by repetition while up 10-6). The
 stalemate itself is gone.
 
+#### Iteration 5 — two-move tactic warnings, conversion coaching, full promotions
+
+Three changes, mechanically validated headlessly, with a small smoke
+batch (3 games) rather than a measured campaign:
+
+- **Two-move tactic warnings**: for each candidate, every quiet
+  opponent reply is scanned for one that would leave a NEW White
+  piece attacked-and-undefended (it was safe right after the move);
+  the best such reply is named as a "tactical risk" on the candidate
+  (a warning, not BAD MOVE — White still gets a move to react).
+- **Conversion coaching**: with a material lead of 4+ the state text
+  carries a CONVERSION line (never repeat, keep pressing), and the
+  repetition/shuffle annotations escalate ("repetition throws the win
+  away").
+- **Full promotions**: all four promotion options are generated
+  (Q/R/B/N, queen first — the human's click still promotes to a
+  queen), with under-promotion annotations advising the queen unless
+  the piece is tactically required. Standard perft references are
+  valid at every depth now (validated: start d4 = 197281, position 3
+  d5 = 674624, position 4 d2/d3 = 264/9467).
+
+**Smoke batch (3 games): 1.5/3** — a 19-ply checkmate win, a 36-ply
+loss (mated down 19-29), and a 250-ply cap while up 4-1 — inside the
+historical variance band (63-86%) and too small to measure an effect;
+the capped game shows the conversion weakness persists. A real
+measurement needs a 12-game batch (the author's call to spend it).
+
 ## Rules implementation
 
 The board is an 8x8 array, `board[y][x]`, with `y=0` at rank 1 (White's
@@ -173,10 +200,11 @@ into check).
 
 `makeMove(bd, m)` applies a move to a copy of the board: it handles the
 en passant capture (removing the pawn on the origin rank), the castling
-rook relocation, and promotion. Promotion is **auto-queen** — one move
-per promotion instead of four (Q/R/B/N). This keeps the option list
-small for Jev and matches how beginners play; under-promotion is
-documented as a deliberate simplification.
+rook relocation, and promotion. All four promotion options (Q/R/B/N)
+are generated per promotion square, with the queen listed first; the
+under-promotion annotations tell Jev to pick R/B/N only when the piece
+is tactically required. The human's two-click input takes the first
+matching move, so click-promotion plays a queen.
 
 `legalMoves(bd, color, castle, ep)` filters pseudo-legal moves by
 applying each on a copy and rejecting any that leave the mover's king
