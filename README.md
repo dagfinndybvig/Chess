@@ -1,4 +1,4 @@
-<img width="718" height="803" alt="chess" src="https://github.com/user-attachments/assets/ed71859c-26ab-46e2-9d1f-f0a24a2fb1e6" />
+<img width="333" height="425" alt="chesschonk2" src="https://github.com/user-attachments/assets/b6724a7d-9f40-4413-a6d7-4ce149bf092f" />
 
 # Chess Harness
 
