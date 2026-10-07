@@ -1106,8 +1106,12 @@ function updateChonkUi() {
   const btn = document.getElementById('chonkBtn');
   btn.style.display = on ? 'inline-block' : 'none';
   if (on) {
-    const fast = Jev.getReasoning() === 'none';
+    const reasoning = Jev.getReasoning();
+    const fast = reasoning === 'none';
     btn.textContent = fast ? 'Chonk: fast' : 'Chonk: thinking';
+    // traffic-light the mode: red = fast, green = full thinking,
+    // yellow = anything between (low/medium, if a model ever offers it)
+    btn.style.color = fast ? '#e53935' : reasoning === 'high' ? '#4caf50' : '#ffd54f';
     btn.title = fast
       ? 'Fast mode: no reasoning trace, about a second per move. Click to switch to full thinking (1-2 minutes per move, shown in the panel).'
       : 'Full thinking: 1-2 minutes per move with the reasoning shown in the panel. Click to switch to fast mode (no thinking).';
