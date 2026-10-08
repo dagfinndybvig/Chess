@@ -94,6 +94,8 @@ const AUTO_DELAY = 700; // pause between autoplay moves
 
 let board, turn, castleR, epSq, halfmove, captures, history, repMap, moveList,
     lastUci, jevLastChoice, gameOver, sel, selMoves, moveSeq = 0;
+let flash = null; // {from, to, t}: red flash on both squares of the last move
+const FLASH_MS = 1600, FLASH_HOLD = 600; // hold solid, then fade
 let autoplay = false;
 
 const isWhiteP = p => p >= 'A' && p <= 'Z';
@@ -354,6 +356,7 @@ function newGame() {
   gameOver = false;
   sel = null;
   selMoves = [];
+  flash = null;
   moveSeq++;
   document.getElementById('gameover').style.display = 'none';
   setStatus(labels().white + ' (White) opens the game.');
@@ -835,6 +838,7 @@ function applyMove(m, color) {
   turn = opp(color);
   sel = null;
   selMoves = [];
+  flash = { from: { x: m.x1, y: m.y1 }, to: { x: m.x2, y: m.y2 }, t: Date.now() };
   draw();
   // repetition count for the new position
   const key = boardKey();
@@ -964,6 +968,7 @@ function undo() {
   moveList.length = h.moveListLen;
   sel = null;
   selMoves = [];
+  flash = null;
   moveSeq++; // invalidate any pending Jev decision
   document.getElementById('gameover').style.display = 'none';
   setStatus('Your move — you are Black.');
@@ -990,6 +995,18 @@ function draw() {
     const x2 = FILES.indexOf(lastUci[2]), y2 = +lastUci[3] - 1;
     tint(x1, y1, 'rgba(255,215,0,.28)');
     tint(x2, y2, 'rgba(255,215,0,.28)');
+  }
+  // red flash on both squares of the last move (solid, then fades)
+  if (flash) {
+    const dt = Date.now() - flash.t;
+    if (dt >= FLASH_MS) flash = null;
+    else {
+      const a = dt < FLASH_HOLD ? 1 : 1 - (dt - FLASH_HOLD) / (FLASH_MS - FLASH_HOLD);
+      const red = 'rgba(229,57,53,' + (0.55 * a).toFixed(3) + ')';
+      tint(flash.from.x, flash.from.y, red);
+      tint(flash.to.x, flash.to.y, red);
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(draw);
+    }
   }
   // kings in check
   for (const c of ['w', 'b']) {
