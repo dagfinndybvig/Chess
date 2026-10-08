@@ -339,8 +339,9 @@ console, `window.jevLog()` returns the last 200 decisions and
 Press **0** to toggle autoplay: the configured model (White) plays
 against the local heuristic AI (Black), with no human input. Each side
 moves on a ~700ms cadence, and when the game ends the result appears in
-large red letters across the board for a few seconds before a new game
-starts automatically. The result line names the players instead of
+large red letters across the board and stays there — the game pauses
+until you click the result (or press **New Game**) to start a fresh
+one. The result line names the players instead of
 "you" — **Local AI** (Black) vs **Jev** or **Mistral** (White) — so you
 can watch the model's best moves against the greedy heuristic's
 captures-and-material play. Without a backend, autoplay is local AI vs
